@@ -16,6 +16,12 @@ datasets=(
     iPersonal_GUI_stage2_android_control_len_2_test
     iPersonal_GUI_stage2_android_control_len_3_test
     iPersonal_GUI_stage2_android_control_len_4_test
+    iPersonal_GUI_stage2_android_control_len_5_test
+)
+
+datasets=(
+    iPersonal_GUI_stage2_aitw_len_10_test
+    iPersonal_GUI_stage2_android_control_len_10_test
 )
 
 ## 定义其他固定参数
@@ -25,7 +31,7 @@ adapter_path="/data4/yanxiaokai/LLaMA-Factory/saves/qwen25vl_7B_stage2/lora/sft/
 template="qwen2_vl"
 
 ## 创建保存目录
-save_dir="/data4/yanxiaokai/LLaMA-Factory/saves/qwen25vl_7B_stage2/lora"
+save_dir="/data4/yanxiaokai/LLaMA-Factory/saves/qwen25vl_7B_stage2/lora/predict"
 mkdir -p "$save_dir"
 
 ## 遍历数据集
