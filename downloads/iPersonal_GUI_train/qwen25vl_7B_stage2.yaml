@@ -19,17 +19,16 @@ freeze_multi_modal_projector: true # choices: [true, false] Whether or not to fr
 train_mm_proj_only: false # choices: [true, false ]Whether or not to train the multimodal projector for MLLM only. default=False
 
 ### dataset
-# dataset: aitw_l1_len_1, aitw_l1_len_2, aitw_l1_len_3, aitw_l1_len_4, aitw_l1_len_5,android_control_len_1,android_control_len_2,android_control_len_3,android_control_len_4,android_control_len_5
-dataset: iPersonal_GUI_stage2_aitw_len_1_train, iPersonal_GUI_stage2_aitw_len_2_train, iPersonal_GUI_stage2_aitw_len_3_train, iPersonal_GUI_stage2_aitw_len_4_train, iPersonal_GUI_stage2_aitw_len_5_train, iPersonal_GUI_stage2_android_control_len_1_train, iPersonal_GUI_stage2_android_control_len_2_train, iPersonal_GUI_stage2_android_control_len_3_train, iPersonal_GUI_stage2_android_control_len_4_train, iPersonal_GUI_stage2_android_control_len_5_train,
+dataset: iPersonal_GUI_stage2_aitw_len_1_train, iPersonal_GUI_stage2_aitw_len_2_train, iPersonal_GUI_stage2_aitw_len_3_train, iPersonal_GUI_stage2_aitw_len_4_train, iPersonal_GUI_stage2_aitw_len_5_train, iPersonal_GUI_stage2_android_control_len_1_train, iPersonal_GUI_stage2_android_control_len_2_train, iPersonal_GUI_stage2_android_control_len_3_train, iPersonal_GUI_stage2_android_control_len_4_train, iPersonal_GUI_stage2_android_control_len_5_train
 template: qwen2_vl
-cutoff_len: 2048 # 输入的最大 token 数, 超过该长度会被截断。
+cutoff_len: 1000000 # 输入的最大 token 数, 超过该长度会被截断。
 max_samples: 1000000 # 每个数据集的最大样本数, 超过将被截断。
 overwrite_cache: true # 是否覆盖缓存的训练和评估数据集。
 preprocessing_num_workers: 16 # 预处理时使用的进程数量。
 
 ### output
 output_dir: saves/qwen25vl_7B_stage2/lora/sft
-logging_steps: 10
+logging_steps: 100
 save_steps: 500
 plot_loss: true
 overwrite_output_dir: true
@@ -44,11 +43,13 @@ warmup_ratio: 0.1
 bf16: true
 ddp_timeout: 180000000
 
-resume_from_checkpoint: saves/qwen25vl_7B_stage2/lora/sft/checkpoint-2000 # 断点重训
+# resume_from_checkpoint: saves/qwen25vl_7B_stage2/lora/sft/checkpoint-2000 # 断点重训
 
 ### eval
-val_size: 0.1
+## 可以使用 eval_dataset 指定验证集, 也可以使用 val_size 指定验证集比例
+# val_size: 0.1
+eval_dataset: iPersonal_GUI_stage2_aitw_len_1_val, iPersonal_GUI_stage2_aitw_len_2_val, iPersonal_GUI_stage2_aitw_len_3_val, iPersonal_GUI_stage2_aitw_len_4_val, iPersonal_GUI_stage2_aitw_len_5_val, iPersonal_GUI_stage2_android_control_len_1_val, iPersonal_GUI_stage2_android_control_len_2_val, iPersonal_GUI_stage2_android_control_len_3_val, iPersonal_GUI_stage2_android_control_len_4_val, iPersonal_GUI_stage2_android_control_len_5_val
 per_device_eval_batch_size: 1
 eval_strategy: steps
 eval_steps: 500
-load_best_model_at_end: true # 是否在训练结束后加载最佳模型。
+# load_best_model_at_end: true # 是否在训练结束后加载最佳模型。
