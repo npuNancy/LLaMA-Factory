@@ -7,30 +7,84 @@
 
 import os
 import json
+import numpy as np
 from typing import List, Dict
 
 from sentence_transformers import SentenceTransformer
 
+from transformers.utils import is_jieba_available, is_nltk_available
+
+if is_nltk_available():
+    from nltk.translate.bleu_score import SmoothingFunction, sentence_bleu
 # 加载模型
 print("加载模型....")
 model = SentenceTransformer("all-MiniLM-L6-v2")
 print("加载模型完成")
 
 
-def get_behaviours_similarity(behaviours_pred, behaviours_true):
+def cal_behaviours_bleu(behaviours_pred: List[str], behaviours_true: List[str]) -> float:
+    """
+    Description:
+        计算行为预测的 bleu4 分数
+        BLEU 的分数取值范围是 0～1，分数越大越好
+    Args:
+        behaviours_pred: 预测的行为
+        behaviours_true: 真实的行为
+    Returns:
+        bleu4 分数
+    """
     min_len = min(len(behaviours_pred), len(behaviours_true))
 
-    # 计算 embeddings
-    embeddings_pred = model.encode(behaviours_pred)
-    embeddings_true = model.encode(behaviours_true)
+    try:
+        if min_len == 0:
+            return 0.0  # bleu 的最小值
 
-    # 计算成对的相似度 tensor([-0.7437, -0.9973, ……])
-    similarities_pairwise = model.similarity_pairwise(embeddings_pred[:min_len], embeddings_true[:min_len])
+        # 去除 <|im_start|> 和 <|im_end|>
+        behaviours_pred = [
+            behaviour.replace("<|im_start|>", "").replace("<|im_end|>", "") for behaviour in behaviours_pred
+        ]
+        behaviours_true = [
+            behaviour.replace("<|im_start|>", "").replace("<|im_end|>", "") for behaviour in behaviours_true
+        ]
 
-    # 取平均
-    similarity = similarities_pairwise.mean().item()
+        bleu_4 = []
+        for pred, label in zip(behaviours_pred, behaviours_true):
+            bleu_score = sentence_bleu([list(label)], list(pred), smoothing_function=SmoothingFunction().method3)
+            bleu_4.append(round(bleu_score * 100, 4))
 
-    return similarity
+        result = np.mean(bleu_4)
+        return result
+    except Exception as e:
+        print(e)
+
+
+def get_behaviours_similarity(behaviours_pred: List[str], behaviours_true: List[str]) -> float:
+    min_len = min(len(behaviours_pred), len(behaviours_true))
+
+    # 去除 <|im_start|> 和 <|im_end|>
+    behaviours_pred = [behaviour.replace("<|im_start|>", "").replace("<|im_end|>", "") for behaviour in behaviours_pred]
+    behaviours_true = [behaviour.replace("<|im_start|>", "").replace("<|im_end|>", "") for behaviour in behaviours_true]
+
+    try:
+        if min_len == 0:
+            # 如果打印出来的都是 true, 说明 pred 少了这部分
+            print(f"true: {', '.join(behaviours_true)}")
+            print(f"pred: {', '.join(behaviours_pred)}")
+            return -1.0  # Cosine 的最小值
+        # 计算 embeddings
+        embeddings_pred = model.encode(behaviours_pred[:min_len])
+        embeddings_true = model.encode(behaviours_true[:min_len])
+
+        # 计算成对的相似度 tensor([-0.7437, -0.9973, ……])
+        similarities_pairwise = model.similarity_pairwise(embeddings_pred, embeddings_true)
+
+        # 取平均
+        similarity = similarities_pairwise.mean().item()
+
+        return similarity
+    except Exception as e:
+        print(f"true: {', '.join(behaviours_true)}")
+        print(f"pred: {', '.join(behaviours_pred)}")
 
 
 def parse_content_to_operations_and_behaviours(content):
@@ -138,11 +192,13 @@ def evaluate_prediction(item):
     # 3. behaviours 是否正确 #
     #########################
     behaviours_similarity = get_behaviours_similarity(behaviours_pred, behaviours_true)
+    behaviours_blue4 = cal_behaviours_bleu(behaviours_pred, behaviours_true)
 
     return {
         "group_num_val": group_num_val,
         "group_location_val": group_location_val,
         "behaviours_similarity": behaviours_similarity,
+        "behaviours_blue4": behaviours_blue4,
     }
 
 
@@ -154,25 +210,29 @@ def main(filepath, save_dir):
     group_num_val_list = []
     group_location_val_list = []
     behaviours_similarity_list = []
+    behaviours_blue4_list = []
 
     # 对每一组数据进行评估
-    for item in data[:10]:
+    for item in data:
         prediction = json.loads(item)
         result = evaluate_prediction(prediction)
         group_num_val_list.append(result["group_num_val"])
         group_location_val_list.append(result["group_location_val"])
         behaviours_similarity_list.append(result["behaviours_similarity"])
+        behaviours_blue4_list.append(result["behaviours_blue4"])
 
     # 计算评估结果
-    group_num_val = sum(group_num_val_list) / len(group_num_val_list)
-    group_location_val = sum(group_location_val_list) / len(group_location_val_list)
-    behaviours_similarity = sum(behaviours_similarity_list) / len(behaviours_similarity_list)
+    group_num_val = np.mean(group_num_val_list)
+    group_location_val = np.mean(group_location_val_list)
+    behaviours_similarity = np.mean(behaviours_similarity_list)
+    behaviours_blue4 = np.mean(behaviours_blue4_list)
 
     filename = os.path.basename(filepath)
-    print(f"{filename=}")
-    print(f"分组数量正确率: {group_num_val}")
-    print(f"</br>位置正确率: {group_location_val}")
-    print(f"behaviours 相似度: {behaviours_similarity}")
+    print(f"{filename=} success.")
+    # print(f"分组数量正确率: {group_num_val}")
+    # print(f"</br>位置正确率: {group_location_val}")
+    # print(f"behaviours 相似度: {behaviours_similarity}")
+    # print(f"behaviours blue4: {behaviours_blue4}")
 
     save_file_name = filename.replace(".jsonl", "_eval.csv")
     save_file_path = os.path.join(save_dir, save_file_name)
@@ -182,12 +242,11 @@ def main(filepath, save_dir):
     with open(save_file_path, "a", encoding="utf-8") as f:
         # 判断当前指针是否是在文件开头
         if f.tell() == 0:
-            f.write(f"文件名, 分组数量正确率, </br>位置正确率, behaviours 相似度\n")
-        f.write(f"{filename}, {group_num_val}, {group_location_val}, {behaviours_similarity}\n")
+            f.write(f"文件名, 分组数量正确率, </br>位置正确率, behaviours 相似度, behaviours blue4\n")
+        f.write(f"{filename}, {group_num_val}, {group_location_val}, {behaviours_similarity}, {behaviours_blue4}\n")
 
 
 if __name__ == "__main__":
-    evaluation_dir = "/data4/yanxiaokai/LLaMA-Factory/saves/qwen25vl_7B_stage2/lora/evaluation"
     evaluation_dir = "/data4/yanxiaokai/LLaMA-Factory/saves/qwen25vl_7B_stage2/lora/evaluation/evaluations.csv"
     predict_dir = "/data4/yanxiaokai/LLaMA-Factory/saves/qwen25vl_7B_stage2/lora/predict"
 
