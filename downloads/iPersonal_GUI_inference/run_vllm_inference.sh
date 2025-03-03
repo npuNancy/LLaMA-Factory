@@ -9,6 +9,7 @@ datasets=(
     iPersonal_GUI_stage2_aitw_len_3_test
     iPersonal_GUI_stage2_aitw_len_4_test
     iPersonal_GUI_stage2_aitw_len_5_test
+    iPersonal_GUI_stage2_aitw_len_10_test
 )
 
 datasets=(
@@ -17,35 +18,57 @@ datasets=(
     iPersonal_GUI_stage2_android_control_len_3_test
     iPersonal_GUI_stage2_android_control_len_4_test
     iPersonal_GUI_stage2_android_control_len_5_test
-)
-
-datasets=(
-    iPersonal_GUI_stage2_aitw_len_10_test
     iPersonal_GUI_stage2_android_control_len_10_test
 )
 
-## 定义其他固定参数
-cuda_device=4
+datasets=(
+    iPersonal_GUI_stage2_aitw_len_1_test
+    iPersonal_GUI_stage2_aitw_len_2_test
+    iPersonal_GUI_stage2_aitw_len_3_test
+    iPersonal_GUI_stage2_aitw_len_4_test
+    iPersonal_GUI_stage2_aitw_len_5_test
+    iPersonal_GUI_stage2_android_control_len_1_test
+    iPersonal_GUI_stage2_android_control_len_2_test
+    iPersonal_GUI_stage2_android_control_len_3_test
+    iPersonal_GUI_stage2_android_control_len_4_test
+    iPersonal_GUI_stage2_android_control_len_5_test
+)
+
+######## 运行前检查修改 ########
+cuda_device="4,5"
+checkpoint="4000"
+######## 运行前检查修改 ########
+adapter_path="/data4/yanxiaokai/LLaMA-Factory/saves/qwen25vl_7B_stage2/lora/sft"
+adapter_path="/data4/yanxiaokai/LLaMA-Factory/saves/qwen25vl_7B_stage2/lora/sft/checkpoint-$checkpoint"
+save_dir="/data4/yanxiaokai/LLaMA-Factory/saves/qwen25vl_7B_stage2/lora/predict_20250301_cp$checkpoint"
+
+
 model_path="/data4/yanxiaokai/Models/modelscope/hub/Qwen/Qwen2.5-VL-7B-Instruct"
-adapter_path="/data4/yanxiaokai/LLaMA-Factory/saves/qwen25vl_7B_stage2/lora/sft/checkpoint-27000"
 template="qwen2_vl"
 
 ## 创建保存目录
-save_dir="/data4/yanxiaokai/LLaMA-Factory/saves/qwen25vl_7B_stage2/lora/predict"
 mkdir -p "$save_dir"
+
+# 进入  /data4/yanxiaokai/LLaMA-Factory 目录
+cd /data4/yanxiaokai/LLaMA-Factory
+
+# 激活 llama_factory 环境
+# conda activate llama_factory
 
 ## 遍历数据集
 for dataset in "${datasets[@]}"; do
     ## 提取数据集名称中的数字部分
     len=$(echo "$dataset" | grep -oP 'len_\K\d+')
-    
+
+    ## 删除 iPersonal_GUI_stage2_ 
+    dataset_name=$(echo "$dataset" | sed 's/iPersonal_GUI_stage2_//g' | sed 's/_test//g' )
+
     ## 构建保存路径
-    save_name="$save_dir/predict_aitw_len_$len.jsonl"
-    save_name="$save_dir/predict_android_control_len_$len.jsonl"
+    save_name="$save_dir/predict_$dataset_name.jsonl"
     
 
     ## 运行推理命令
-    CUDA_VISIBLE_DEVICES=$cuda_device python scripts/vllm_infer.py \
+    CUDA_VISIBLE_DEVICES="$cuda_device" python scripts/vllm_infer.py \
         --model_name_or_path "$model_path" \
         --adapter_name_or_path "$adapter_path" \
         --template "$template" \
@@ -53,10 +76,19 @@ for dataset in "${datasets[@]}"; do
         --dataset "$dataset" \
         --save_name "$save_name"
 
-    
+
+
+    # 捕获退出状态
+    # result=$?
+
+    # if [ $result -eq 0 ]; then
+    #     echo "完成 $dataset 的推理，结果保存到 $save_name"
+    # else
+    #     echo "推理 $dataset 失败，退出状态码 $result"
+    #     exit $result
+    # fi
     echo "完成 $dataset 的推理，结果保存到 $save_name"
     echo -e "--------------------------------------------------\n\n\n"
 
-    # Sleep 5 秒
-    sleep 5
+    sleep 1
 done
