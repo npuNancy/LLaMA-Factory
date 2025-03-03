@@ -52,4 +52,5 @@ eval_dataset: iPersonal_GUI_stage2_aitw_len_1_val, iPersonal_GUI_stage2_aitw_len
 per_device_eval_batch_size: 1
 eval_strategy: steps
 eval_steps: 500
+predict_with_generate: true ## 
 # load_best_model_at_end: true # 是否在训练结束后加载最佳模型。
