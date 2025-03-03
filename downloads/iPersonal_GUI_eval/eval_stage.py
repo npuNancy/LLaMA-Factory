@@ -245,19 +245,58 @@ def main(filepath, save_dir):
             f.write(f"文件名, 分组数量正确率, </br>位置正确率, behaviours 相似度, behaviours blue4\n")
         f.write(f"{filename}, {group_num_val}, {group_location_val}, {behaviours_similarity}, {behaviours_blue4}\n")
 
+    return {
+        "group_num_val": group_num_val,
+        "group_location_val": group_location_val,
+        "behaviours_similarity": behaviours_similarity,
+        "behaviours_blue4": behaviours_blue4,
+    }
+
+
+# 计算均值，入参为N个字典，N不确定
+def save_mean(name, save_dir, *args):
+    # return {key: np.mean([d[key] for d in args]) for key in args[0].keys()}
+    group_num_val = np.mean([d["group_num_val"] for d in args])
+    group_location_val = np.mean([d["group_location_val"] for d in args])
+    behaviours_similarity = np.mean([d["behaviours_similarity"] for d in args])
+    behaviours_blue4 = np.mean([d["behaviours_blue4"] for d in args])
+
+    with open(save_dir, "a", encoding="utf-8") as f:
+        # 判断当前指针是否是在文件开头
+        f.write(f"{name} mean, {group_num_val}, {group_location_val}, {behaviours_similarity}, {behaviours_blue4}\n")
+
 
 if __name__ == "__main__":
-    evaluation_dir = "/data4/yanxiaokai/LLaMA-Factory/saves/qwen25vl_7B_stage2/lora/evaluation/evaluations.csv"
-    predict_dir = "/data4/yanxiaokai/LLaMA-Factory/saves/qwen25vl_7B_stage2/lora/predict"
+    evaluation_dir = (
+        "/data4/yanxiaokai/LLaMA-Factory/saves/qwen25vl_7B_stage2/lora/evaluation/evaluations_20250301_cp4000.csv"
+    )
+    predict_dir = "/data4/yanxiaokai/LLaMA-Factory/saves/qwen25vl_7B_stage2/lora/predict_20250301_cp4000"
 
-    main(os.path.join(predict_dir, "predict_aitw_len_1.jsonl"), save_dir=evaluation_dir)
-    main(os.path.join(predict_dir, "predict_aitw_len_2.jsonl"), save_dir=evaluation_dir)
-    main(os.path.join(predict_dir, "predict_aitw_len_3.jsonl"), save_dir=evaluation_dir)
-    main(os.path.join(predict_dir, "predict_aitw_len_4.jsonl"), save_dir=evaluation_dir)
-    main(os.path.join(predict_dir, "predict_aitw_len_5.jsonl"), save_dir=evaluation_dir)
+    res_aitw_1 = main(os.path.join(predict_dir, "predict_aitw_len_1.jsonl"), save_dir=evaluation_dir)
+    res_aitw_2 = main(os.path.join(predict_dir, "predict_aitw_len_2.jsonl"), save_dir=evaluation_dir)
+    res_aitw_3 = main(os.path.join(predict_dir, "predict_aitw_len_3.jsonl"), save_dir=evaluation_dir)
+    res_aitw_4 = main(os.path.join(predict_dir, "predict_aitw_len_4.jsonl"), save_dir=evaluation_dir)
+    res_aitw_5 = main(os.path.join(predict_dir, "predict_aitw_len_5.jsonl"), save_dir=evaluation_dir)
+    save_mean("aitw", evaluation_dir, res_aitw_1, res_aitw_2, res_aitw_3, res_aitw_4, res_aitw_5)
 
-    main(os.path.join(predict_dir, "predict_android_control_len_1.jsonl"), save_dir=evaluation_dir)
-    main(os.path.join(predict_dir, "predict_android_control_len_2.jsonl"), save_dir=evaluation_dir)
-    main(os.path.join(predict_dir, "predict_android_control_len_3.jsonl"), save_dir=evaluation_dir)
-    main(os.path.join(predict_dir, "predict_android_control_len_4.jsonl"), save_dir=evaluation_dir)
-    main(os.path.join(predict_dir, "predict_android_control_len_5.jsonl"), save_dir=evaluation_dir)
+    res_a_c_1 = main(os.path.join(predict_dir, "predict_android_control_len_1.jsonl"), save_dir=evaluation_dir)
+    res_a_c_2 = main(os.path.join(predict_dir, "predict_android_control_len_2.jsonl"), save_dir=evaluation_dir)
+    res_a_c_3 = main(os.path.join(predict_dir, "predict_android_control_len_3.jsonl"), save_dir=evaluation_dir)
+    res_a_c_4 = main(os.path.join(predict_dir, "predict_android_control_len_4.jsonl"), save_dir=evaluation_dir)
+    res_a_c_5 = main(os.path.join(predict_dir, "predict_android_control_len_5.jsonl"), save_dir=evaluation_dir)
+    save_mean("android_control", evaluation_dir, res_a_c_1, res_a_c_2, res_a_c_3, res_a_c_4, res_a_c_5)
+
+    save_mean(
+        "all",
+        evaluation_dir,
+        res_aitw_1,
+        res_aitw_2,
+        res_aitw_3,
+        res_aitw_4,
+        res_aitw_5,
+        res_a_c_1,
+        res_a_c_2,
+        res_a_c_3,
+        res_a_c_4,
+        res_a_c_5,
+    )
