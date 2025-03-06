@@ -591,6 +591,314 @@
       "system_tag": "system"
     }
   },
+  "iPersonal_GUI_stage3_train_00006a45a09c4704b3d4325082718302": {
+    "file_name": "/data4/yanxiaokai/data/iPersonal-GUI/stage3/train/train_00006a45a09c4704b3d4325082718302.json",
+    "formatting": "sharegpt",
+    "columns": {
+      "messages": "messages"
+    },
+    "tags": {
+      "role_tag": "role",
+      "content_tag": "content",
+      "user_tag": "user",
+      "assistant_tag": "assistant",
+      "system_tag": "system"
+    }
+  },
+  "iPersonal_GUI_stage3_test_00006a45a09c4704b3d4325082718302": {
+    "file_name": "/data4/yanxiaokai/data/iPersonal-GUI/stage3/test/test_00006a45a09c4704b3d4325082718302.json",
+    "formatting": "sharegpt",
+    "columns": {
+      "messages": "messages"
+    },
+    "tags": {
+      "role_tag": "role",
+      "content_tag": "content",
+      "user_tag": "user",
+      "assistant_tag": "assistant",
+      "system_tag": "system"
+    }
+  },
+  "iPersonal_GUI_stage3_train_0002bb1fef5d4400acf59e29223eea46": {
+    "file_name": "/data4/yanxiaokai/data/iPersonal-GUI/stage3/train/train_0002bb1fef5d4400acf59e29223eea46.json",
+    "formatting": "sharegpt",
+    "columns": {
+      "messages": "messages"
+    },
+    "tags": {
+      "role_tag": "role",
+      "content_tag": "content",
+      "user_tag": "user",
+      "assistant_tag": "assistant",
+      "system_tag": "system"
+    }
+  },
+  "iPersonal_GUI_stage3_test_0002bb1fef5d4400acf59e29223eea46": {
+    "file_name": "/data4/yanxiaokai/data/iPersonal-GUI/stage3/test/test_0002bb1fef5d4400acf59e29223eea46.json",
+    "formatting": "sharegpt",
+    "columns": {
+      "messages": "messages"
+    },
+    "tags": {
+      "role_tag": "role",
+      "content_tag": "content",
+      "user_tag": "user",
+      "assistant_tag": "assistant",
+      "system_tag": "system"
+    }
+  },
+  "iPersonal_GUI_stage3_train_0000efaa8f2444b48a9bbc384ce4fd2f": {
+    "file_name": "/data4/yanxiaokai/data/iPersonal-GUI/stage3/train/train_0000efaa8f2444b48a9bbc384ce4fd2f.json",
+    "formatting": "sharegpt",
+    "columns": {
+      "messages": "messages"
+    },
+    "tags": {
+      "role_tag": "role",
+      "content_tag": "content",
+      "user_tag": "user",
+      "assistant_tag": "assistant",
+      "system_tag": "system"
+    }
+  },
+  "iPersonal_GUI_stage3_test_0000efaa8f2444b48a9bbc384ce4fd2f": {
+    "file_name": "/data4/yanxiaokai/data/iPersonal-GUI/stage3/test/test_0000efaa8f2444b48a9bbc384ce4fd2f.json",
+    "formatting": "sharegpt",
+    "columns": {
+      "messages": "messages"
+    },
+    "tags": {
+      "role_tag": "role",
+      "content_tag": "content",
+      "user_tag": "user",
+      "assistant_tag": "assistant",
+      "system_tag": "system"
+    }
+  },
+  "iPersonal_GUI_stage3_train_0001a22e91a34f6eae4f673f60dec2fb": {
+    "file_name": "/data4/yanxiaokai/data/iPersonal-GUI/stage3/train/train_0001a22e91a34f6eae4f673f60dec2fb.json",
+    "formatting": "sharegpt",
+    "columns": {
+      "messages": "messages"
+    },
+    "tags": {
+      "role_tag": "role",
+      "content_tag": "content",
+      "user_tag": "user",
+      "assistant_tag": "assistant",
+      "system_tag": "system"
+    }
+  },
+  "iPersonal_GUI_stage3_test_0001a22e91a34f6eae4f673f60dec2fb": {
+    "file_name": "/data4/yanxiaokai/data/iPersonal-GUI/stage3/test/test_0001a22e91a34f6eae4f673f60dec2fb.json",
+    "formatting": "sharegpt",
+    "columns": {
+      "messages": "messages"
+    },
+    "tags": {
+      "role_tag": "role",
+      "content_tag": "content",
+      "user_tag": "user",
+      "assistant_tag": "assistant",
+      "system_tag": "system"
+    }
+  },
+  "iPersonal_GUI_stage3_train_00022ab52dcb41d48fd07357e948a8d6": {
+    "file_name": "/data4/yanxiaokai/data/iPersonal-GUI/stage3/train/train_00022ab52dcb41d48fd07357e948a8d6.json",
+    "formatting": "sharegpt",
+    "columns": {
+      "messages": "messages"
+    },
+    "tags": {
+      "role_tag": "role",
+      "content_tag": "content",
+      "user_tag": "user",
+      "assistant_tag": "assistant",
+      "system_tag": "system"
+    }
+  },
+  "iPersonal_GUI_stage3_test_00022ab52dcb41d48fd07357e948a8d6": {
+    "file_name": "/data4/yanxiaokai/data/iPersonal-GUI/stage3/test/test_00022ab52dcb41d48fd07357e948a8d6.json",
+    "formatting": "sharegpt",
+    "columns": {
+      "messages": "messages"
+    },
+    "tags": {
+      "role_tag": "role",
+      "content_tag": "content",
+      "user_tag": "user",
+      "assistant_tag": "assistant",
+      "system_tag": "system"
+    }
+  },
+  "iPersonal_GUI_stage3_train_0000cb4e633944c08cf1f26f8058cd4f": {
+    "file_name": "/data4/yanxiaokai/data/iPersonal-GUI/stage3/train/train_0000cb4e633944c08cf1f26f8058cd4f.json",
+    "formatting": "sharegpt",
+    "columns": {
+      "messages": "messages"
+    },
+    "tags": {
+      "role_tag": "role",
+      "content_tag": "content",
+      "user_tag": "user",
+      "assistant_tag": "assistant",
+      "system_tag": "system"
+    }
+  },
+  "iPersonal_GUI_stage3_test_0000cb4e633944c08cf1f26f8058cd4f": {
+    "file_name": "/data4/yanxiaokai/data/iPersonal-GUI/stage3/test/test_0000cb4e633944c08cf1f26f8058cd4f.json",
+    "formatting": "sharegpt",
+    "columns": {
+      "messages": "messages"
+    },
+    "tags": {
+      "role_tag": "role",
+      "content_tag": "content",
+      "user_tag": "user",
+      "assistant_tag": "assistant",
+      "system_tag": "system"
+    }
+  },
+  "iPersonal_GUI_stage3_train_0000e27ba6974b178b6172a38dac55ad": {
+    "file_name": "/data4/yanxiaokai/data/iPersonal-GUI/stage3/train/train_0000e27ba6974b178b6172a38dac55ad.json",
+    "formatting": "sharegpt",
+    "columns": {
+      "messages": "messages"
+    },
+    "tags": {
+      "role_tag": "role",
+      "content_tag": "content",
+      "user_tag": "user",
+      "assistant_tag": "assistant",
+      "system_tag": "system"
+    }
+  },
+  "iPersonal_GUI_stage3_test_0000e27ba6974b178b6172a38dac55ad": {
+    "file_name": "/data4/yanxiaokai/data/iPersonal-GUI/stage3/test/test_0000e27ba6974b178b6172a38dac55ad.json",
+    "formatting": "sharegpt",
+    "columns": {
+      "messages": "messages"
+    },
+    "tags": {
+      "role_tag": "role",
+      "content_tag": "content",
+      "user_tag": "user",
+      "assistant_tag": "assistant",
+      "system_tag": "system"
+    }
+  },
+  "iPersonal_GUI_stage3_train_0000be0a85ef432380fc40a37879b116": {
+    "file_name": "/data4/yanxiaokai/data/iPersonal-GUI/stage3/train/train_0000be0a85ef432380fc40a37879b116.json",
+    "formatting": "sharegpt",
+    "columns": {
+      "messages": "messages"
+    },
+    "tags": {
+      "role_tag": "role",
+      "content_tag": "content",
+      "user_tag": "user",
+      "assistant_tag": "assistant",
+      "system_tag": "system"
+    }
+  },
+  "iPersonal_GUI_stage3_test_0000be0a85ef432380fc40a37879b116": {
+    "file_name": "/data4/yanxiaokai/data/iPersonal-GUI/stage3/test/test_0000be0a85ef432380fc40a37879b116.json",
+    "formatting": "sharegpt",
+    "columns": {
+      "messages": "messages"
+    },
+    "tags": {
+      "role_tag": "role",
+      "content_tag": "content",
+      "user_tag": "user",
+      "assistant_tag": "assistant",
+      "system_tag": "system"
+    }
+  },
+  "iPersonal_GUI_stage3_train_00015d1363c14c9cb83fa90276f9c636": {
+    "file_name": "/data4/yanxiaokai/data/iPersonal-GUI/stage3/train/train_00015d1363c14c9cb83fa90276f9c636.json",
+    "formatting": "sharegpt",
+    "columns": {
+      "messages": "messages"
+    },
+    "tags": {
+      "role_tag": "role",
+      "content_tag": "content",
+      "user_tag": "user",
+      "assistant_tag": "assistant",
+      "system_tag": "system"
+    }
+  },
+  "iPersonal_GUI_stage3_test_00015d1363c14c9cb83fa90276f9c636": {
+    "file_name": "/data4/yanxiaokai/data/iPersonal-GUI/stage3/test/test_00015d1363c14c9cb83fa90276f9c636.json",
+    "formatting": "sharegpt",
+    "columns": {
+      "messages": "messages"
+    },
+    "tags": {
+      "role_tag": "role",
+      "content_tag": "content",
+      "user_tag": "user",
+      "assistant_tag": "assistant",
+      "system_tag": "system"
+    }
+  },
+  "iPersonal_GUI_stage3_train_00023c3d36a5410aafcb778901e8ed3d": {
+    "file_name": "/data4/yanxiaokai/data/iPersonal-GUI/stage3/train/train_00023c3d36a5410aafcb778901e8ed3d.json",
+    "formatting": "sharegpt",
+    "columns": {
+      "messages": "messages"
+    },
+    "tags": {
+      "role_tag": "role",
+      "content_tag": "content",
+      "user_tag": "user",
+      "assistant_tag": "assistant",
+      "system_tag": "system"
+    }
+  },
+  "iPersonal_GUI_stage3_test_00023c3d36a5410aafcb778901e8ed3d": {
+    "file_name": "/data4/yanxiaokai/data/iPersonal-GUI/stage3/test/test_00023c3d36a5410aafcb778901e8ed3d.json",
+    "formatting": "sharegpt",
+    "columns": {
+      "messages": "messages"
+    },
+    "tags": {
+      "role_tag": "role",
+      "content_tag": "content",
+      "user_tag": "user",
+      "assistant_tag": "assistant",
+      "system_tag": "system"
+    }
+  },
+  "iPersonal_GUI_stage3_train_all": {
+    "file_name": "/data4/yanxiaokai/data/iPersonal-GUI/stage3/train/train_all.json",
+    "formatting": "sharegpt",
+    "columns": {
+      "messages": "messages"
+    },
+    "tags": {
+      "role_tag": "role",
+      "content_tag": "content",
+      "user_tag": "user",
+      "assistant_tag": "assistant",
+      "system_tag": "system"
+    }
+  },
+  "iPersonal_GUI_stage3_test_all": {
+    "file_name": "/data4/yanxiaokai/data/iPersonal-GUI/stage3/test/test_all.json",
+    "formatting": "sharegpt",
+    "columns": {
+      "messages": "messages"
+    },
+    "tags": {
+      "role_tag": "role",
+      "content_tag": "content",
+      "user_tag": "user",
+      "assistant_tag": "assistant",
+      "system_tag": "system"
+    }
+  },
   "identity": {
     "file_name": "identity.json"
   },
