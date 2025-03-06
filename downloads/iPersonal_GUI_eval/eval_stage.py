@@ -6,6 +6,7 @@
 """
 
 import os
+import re
 import json
 import numpy as np
 from typing import List, Dict
@@ -125,10 +126,17 @@ def parse_content_to_operations_and_behaviours(content):
             operations_list.append(operations_dict)
             operations_dict = {}  # 清空字典
         else:
-            # 正常的 operation
-            step = operation.split(":", 1)[0].strip()
-            operation_ = operation.split(":", 1)[1].strip()
-            operations_dict[step] = operation_
+            if True:
+                # 仅输出步骤 时 operation "Step 1"
+                # 完整的 operation "Step 1: Scroll down to see more apps on the device."
+                pattern = r"^([sS]tep\s\d+)"
+                step = re.findall(pattern, operation)
+                if step:
+                    step = step[0].strip()
+                    operations_dict[step] = operation
+                else:
+                    print(f"格式不正确:{operation=}")
+                    operations_dict[""] = operation
 
     if operations_dict:  # 如果最后一组操作没有结束, 则添加到列表中
         operations_list.append(operations_dict)
