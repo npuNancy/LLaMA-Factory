@@ -126,17 +126,16 @@ def parse_content_to_operations_and_behaviours(content):
             operations_list.append(operations_dict)
             operations_dict = {}  # 清空字典
         else:
-            if True:
-                # 仅输出步骤 时 operation "Step 1"
-                # 完整的 operation "Step 1: Scroll down to see more apps on the device."
-                pattern = r"^([sS]tep\s\d+)"
-                step = re.findall(pattern, operation)
-                if step:
-                    step = step[0].strip()
-                    operations_dict[step] = operation
-                else:
-                    print(f"格式不正确:{operation=}")
-                    operations_dict[""] = operation
+            # 仅输出步骤 时 operation "Step 1"
+            # 完整的 operation "Step 1: Scroll down to see more apps on the device."
+            pattern = r"^([sS]tep\s\d+)"
+            step = re.findall(pattern, operation)
+            if step:
+                step = step[0].strip()
+                operations_dict[step] = operation
+            else:
+                print(f"格式不正确:{operation=}")
+                operations_dict[""] = operation
 
     if operations_dict:  # 如果最后一组操作没有结束, 则添加到列表中
         operations_list.append(operations_dict)
@@ -275,28 +274,32 @@ def save_mean(name, save_dir, *args):
 
 
 if __name__ == "__main__":
-    evaluation_dir = (
-        "/data4/yanxiaokai/LLaMA-Factory/saves/qwen25vl_7B_stage2/lora/evaluation/evaluations_20250301_cp4000.csv"
-    )
-    predict_dir = "/data4/yanxiaokai/LLaMA-Factory/saves/qwen25vl_7B_stage2/lora/predict_20250301_cp4000"
+    save_dir = "/data4/yanxiaokai/LLaMA-Factory/saves/qwen25vl_7B_stage2/lora/evaluation/"
 
-    res_aitw_1 = main(os.path.join(predict_dir, "predict_aitw_len_1.jsonl"), save_dir=evaluation_dir)
-    res_aitw_2 = main(os.path.join(predict_dir, "predict_aitw_len_2.jsonl"), save_dir=evaluation_dir)
-    res_aitw_3 = main(os.path.join(predict_dir, "predict_aitw_len_3.jsonl"), save_dir=evaluation_dir)
-    res_aitw_4 = main(os.path.join(predict_dir, "predict_aitw_len_4.jsonl"), save_dir=evaluation_dir)
-    res_aitw_5 = main(os.path.join(predict_dir, "predict_aitw_len_5.jsonl"), save_dir=evaluation_dir)
-    save_mean("aitw", evaluation_dir, res_aitw_1, res_aitw_2, res_aitw_3, res_aitw_4, res_aitw_5)
+    ### 每次运行修改 ###
+    save_filename = "evaluations_20250306_only_step_cp13000.csv"
+    predict_dir = "/data4/yanxiaokai/LLaMA-Factory/saves/qwen25vl_7B_stage2/lora/predict_20250306_only_step_cp13000"
+    ### 每次运行修改 ###
 
-    res_a_c_1 = main(os.path.join(predict_dir, "predict_android_control_len_1.jsonl"), save_dir=evaluation_dir)
-    res_a_c_2 = main(os.path.join(predict_dir, "predict_android_control_len_2.jsonl"), save_dir=evaluation_dir)
-    res_a_c_3 = main(os.path.join(predict_dir, "predict_android_control_len_3.jsonl"), save_dir=evaluation_dir)
-    res_a_c_4 = main(os.path.join(predict_dir, "predict_android_control_len_4.jsonl"), save_dir=evaluation_dir)
-    res_a_c_5 = main(os.path.join(predict_dir, "predict_android_control_len_5.jsonl"), save_dir=evaluation_dir)
-    save_mean("android_control", evaluation_dir, res_a_c_1, res_a_c_2, res_a_c_3, res_a_c_4, res_a_c_5)
+    save_filepath = os.path.join(save_dir, save_filename)
+
+    res_aitw_1 = main(os.path.join(predict_dir, "predict_aitw_len_1.jsonl"), save_dir=save_filepath)
+    res_aitw_2 = main(os.path.join(predict_dir, "predict_aitw_len_2.jsonl"), save_dir=save_filepath)
+    res_aitw_3 = main(os.path.join(predict_dir, "predict_aitw_len_3.jsonl"), save_dir=save_filepath)
+    res_aitw_4 = main(os.path.join(predict_dir, "predict_aitw_len_4.jsonl"), save_dir=save_filepath)
+    res_aitw_5 = main(os.path.join(predict_dir, "predict_aitw_len_5.jsonl"), save_dir=save_filepath)
+    save_mean("aitw", save_filepath, res_aitw_1, res_aitw_2, res_aitw_3, res_aitw_4, res_aitw_5)
+
+    res_a_c_1 = main(os.path.join(predict_dir, "predict_android_control_len_1.jsonl"), save_dir=save_filepath)
+    res_a_c_2 = main(os.path.join(predict_dir, "predict_android_control_len_2.jsonl"), save_dir=save_filepath)
+    res_a_c_3 = main(os.path.join(predict_dir, "predict_android_control_len_3.jsonl"), save_dir=save_filepath)
+    res_a_c_4 = main(os.path.join(predict_dir, "predict_android_control_len_4.jsonl"), save_dir=save_filepath)
+    res_a_c_5 = main(os.path.join(predict_dir, "predict_android_control_len_5.jsonl"), save_dir=save_filepath)
+    save_mean("android_control", save_filepath, res_a_c_1, res_a_c_2, res_a_c_3, res_a_c_4, res_a_c_5)
 
     save_mean(
         "all",
-        evaluation_dir,
+        save_filepath,
         res_aitw_1,
         res_aitw_2,
         res_aitw_3,
