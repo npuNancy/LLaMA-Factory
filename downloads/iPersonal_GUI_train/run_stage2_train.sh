@@ -5,17 +5,21 @@
 ############## 运行前检查并修改 ##########
 force_torchrun=1    # 是否强制使用 torchrun
 cuda_device="5,6,7"   # 使用的 GPU 设备
+output_dir="saves/qwen25vl_7B_stage2/lora/sft_1" # checkpoint 保存目录
 ############## 运行前检查并修改 ##########
 
 # 模型训练的配置文件路径
 train_config="downloads/iPersonal_GUI_train/qwen25vl_7B_stage2.yaml"
 
+
+# 修改配置文件中的 output_dir 字段
+sed -i "/^output_dir:/s|.*|output_dir: $output_dir|" $train_config
+
+## 日志
 # 保存训练日志的目录
 save_dir="/data4/yanxiaokai/LLaMA-Factory/saves/qwen25vl_7B_stage2/lora/log"
-
 # 动态生成一个带有时间戳的日志文件名
 log_file="${save_dir}/train_log_$(date +%Y%m%d).txt"
-
 
 # 检查 save_dir 是否存在，如果不存在则创建
 if [ ! -d "$save_dir" ]; then

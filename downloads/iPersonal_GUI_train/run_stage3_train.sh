@@ -15,12 +15,12 @@ train_config="/data4/yanxiaokai/LLaMA-Factory/downloads/iPersonal_GUI_train/qwen
 # 修改配置文件中的 output_dir 字段
 sed -i "/^output_dir:/s|.*|output_dir: $output_dir|" $train_config
 
-
 ## 日志
 # 保存训练日志的目录
 save_dir="/data4/yanxiaokai/LLaMA-Factory/saves/qwen25vl_7B_stage3/lora/log"
 # 动态生成一个带有时间戳的日志文件名
 log_file="${save_dir}/train_log_$(date +%Y%m%d).txt"
+
 # 检查 save_dir 是否存在，如果不存在则创建
 if [ ! -d "$save_dir" ]; then
     mkdir -p "$save_dir"
