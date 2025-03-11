@@ -19,6 +19,7 @@
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Dict, Optional
 
+import re
 import numpy as np
 import torch
 from transformers.utils import is_jieba_available, is_nltk_available
@@ -62,8 +63,8 @@ def eval_logit_processor(logits: "torch.Tensor", labels: "torch.Tensor") -> "tor
 
 
 # 加载模型
-# print("加载模型 SentenceTransformer: all-MiniLM-L6-v2....")
-# sentence_model = SentenceTransformer("all-MiniLM-L6-v2")
+print("加载模型 SentenceTransformer: all-MiniLM-L6-v2....")
+sentence_model = SentenceTransformer("all-MiniLM-L6-v2")
 
 
 @dataclass
@@ -124,7 +125,7 @@ class ComputeSimilarity:
     def __post_init__(self):
         self._dump()
 
-    def __call__(self, eval_preds: "EvalPrediction", compute_result: bool = True) -> Optional[Dict[str, float]]:
+    def __call__bakup(self, eval_preds: "EvalPrediction", compute_result: bool = True) -> Optional[Dict[str, float]]:
         preds, labels = numpify(eval_preds.predictions), numpify(eval_preds.label_ids)
 
         preds = np.where(preds != IGNORE_INDEX, preds, self.tokenizer.pad_token_id)
@@ -206,10 +207,16 @@ class ComputeSimilarity:
                 operations_list.append(operations_dict)
                 operations_dict = {}  # 清空字典
             else:
-                # 正常的 operation
-                step = operation.split(":", 1)[0].strip()
-                operation_ = operation.split(":", 1)[1].strip()
-                operations_dict[step] = operation_
+                # 仅输出步骤 时 operation "Step 1"
+                # 完整的 operation "Step 1: Scroll down to see more apps on the device."
+                pattern = r"^([sS]tep\s\d+)"
+                step = re.findall(pattern, operation)
+                if step:
+                    step = step[0].strip()
+                    operations_dict[step] = operation
+                else:
+                    print(f"格式不正确:{operation=}")
+                    operations_dict[""] = operation
 
         if operations_dict:  # 如果最后一组操作没有结束, 则添加到列表中
             operations_list.append(operations_dict)
@@ -219,22 +226,10 @@ class ComputeSimilarity:
 
         return operations_list, behaviours_list
 
-    def my__call__(self, eval_preds: "EvalPrediction", compute_result: bool = True) -> Optional[Dict[str, float]]:
-        # 将预测结果和标签转换为numpy数组
-        preds, labels = numpify(eval_preds.predictions), numpify(eval_preds.label_ids)
-
-        # 将预测结果和标签中的IGNORE_INDEX替换为pad_token_id
-        # np.where(condition, x, y) 满足条件(condition)，输出x，不满足输出y。
-        preds = np.where(preds != IGNORE_INDEX, preds, self.tokenizer.pad_token_id)
-        labels = np.where(labels != IGNORE_INDEX, labels, self.tokenizer.pad_token_id)
-
-        # 将预测结果和标签解码为文本
-        decoded_preds = self.tokenizer.batch_decode(preds, skip_special_tokens=True)
-        decoded_labels = self.tokenizer.batch_decode(labels, skip_special_tokens=True)
+    def eval_stage_2(self, decoded_preds, decoded_labels):
 
         # 遍历预测结果和标签
         for pred, label in zip(decoded_preds, decoded_labels):
-
             # 解析出 操作序列 和 行为序列
             # behaviours_*: ["xxx", "xxx", ……]
             # operations_dict_*: [{"Step 1": "xxx", "Step 2": "xxx"}, {……}， ……]
@@ -268,9 +263,24 @@ class ComputeSimilarity:
             behaviours_similarity = self.get_behaviours_similarity(behaviours_pred, behaviours_true)
             self.score_dict["group_location_val"].append(round(behaviours_similarity, 4))
 
-            #########################
-            # 4. rouge 和  bleu-4   #
-            #########################
+    def __call__(self, eval_preds: "EvalPrediction", compute_result: bool = True) -> Optional[Dict[str, float]]:
+        # 将预测结果和标签转换为numpy数组
+        preds, labels = numpify(eval_preds.predictions), numpify(eval_preds.label_ids)
+
+        # 将预测结果和标签中的IGNORE_INDEX替换为pad_token_id
+        # np.where(condition, x, y) 满足条件(condition)，输出x，不满足输出y。
+        preds = np.where(preds != IGNORE_INDEX, preds, self.tokenizer.pad_token_id)
+        labels = np.where(labels != IGNORE_INDEX, labels, self.tokenizer.pad_token_id)
+
+        # 将预测结果和标签解码为文本
+        decoded_preds = self.tokenizer.batch_decode(preds, skip_special_tokens=True)
+        decoded_labels = self.tokenizer.batch_decode(labels, skip_special_tokens=True)
+
+        # 计算阶段2指标
+        self.eval_stage_2(decoded_preds, decoded_labels)
+
+        # 遍历预测结果和标签
+        for pred, label in zip(decoded_preds, decoded_labels):
             # 使用jieba分词
             hypothesis = list(jieba.cut(pred))
             reference = list(jieba.cut(label))
