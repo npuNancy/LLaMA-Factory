@@ -17,7 +17,7 @@
 # limitations under the License.
 
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Dict, Optional
+from typing import TYPE_CHECKING, Dict, Optional, List
 
 import re
 import numpy as np
@@ -119,6 +119,7 @@ class ComputeSimilarity:
             "group_num_val": [],
             "group_location_val": [],
             "behaviours_similarity": [],
+            "behaviours_blue4": [],
         }
         return result
 
@@ -226,6 +227,41 @@ class ComputeSimilarity:
 
         return operations_list, behaviours_list
 
+    def cal_behaviours_bleu(self, behaviours_pred: List[str], behaviours_true: List[str]) -> float:
+        """
+        Description:
+            计算行为预测的 bleu4 分数
+            BLEU 的分数取值范围是 0～1，分数越大越好
+        Args:
+            behaviours_pred: 预测的行为
+            behaviours_true: 真实的行为
+        Returns:
+            bleu4 分数
+        """
+        min_len = min(len(behaviours_pred), len(behaviours_true))
+
+        try:
+            if min_len == 0:
+                return 0.0  # bleu 的最小值
+
+            # 去除 <|im_start|> 和 <|im_end|>
+            behaviours_pred = [
+                behaviour.replace("<|im_start|>", "").replace("<|im_end|>", "") for behaviour in behaviours_pred
+            ]
+            behaviours_true = [
+                behaviour.replace("<|im_start|>", "").replace("<|im_end|>", "") for behaviour in behaviours_true
+            ]
+
+            bleu_4 = []
+            for pred, label in zip(behaviours_pred, behaviours_true):
+                bleu_score = sentence_bleu([list(label)], list(pred), smoothing_function=SmoothingFunction().method3)
+                bleu_4.append(round(bleu_score * 100, 4))
+
+            result = np.mean(bleu_4)
+            return result
+        except Exception as e:
+            print(e)
+
     def eval_stage_2(self, decoded_preds, decoded_labels):
 
         # 遍历预测结果和标签
@@ -261,7 +297,9 @@ class ComputeSimilarity:
             # 3. behaviours 是否正确 #
             #########################
             behaviours_similarity = self.get_behaviours_similarity(behaviours_pred, behaviours_true)
-            self.score_dict["group_location_val"].append(round(behaviours_similarity, 4))
+            behaviours_blue4 = self.cal_behaviours_bleu(behaviours_pred, behaviours_true)
+            self.score_dict["behaviours_similarity"].append(round(behaviours_similarity, 4))
+            self.score_dict["behaviours_blue4"].append(round(behaviours_blue4, 4))
 
     def __call__(self, eval_preds: "EvalPrediction", compute_result: bool = True) -> Optional[Dict[str, float]]:
         # 将预测结果和标签转换为numpy数组
