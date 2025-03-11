@@ -40,7 +40,7 @@ overwrite_output_dir: true
 
 ### eval
 # per_device_eval_batch_size: 1
-predict_with_generate: true ## 
+predict_with_generate: true ## 会调用 metrics 计算相似度 
 # ddp_timeout: 180000000
 
 
