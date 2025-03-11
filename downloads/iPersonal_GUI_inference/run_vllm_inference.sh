@@ -35,12 +35,11 @@ datasets=(
 )
 
 ######## 运行前检查修改 ########
-cuda_device="4,5"
-checkpoint="4000"
+cuda_device="6,7"
+checkpoint="13000"
+adapter_path="/data4/yanxiaokai/LLaMA-Factory/saves/qwen25vl_7B_stage2/lora/sft_only_step/checkpoint-$checkpoint"
+save_dir="/data4/yanxiaokai/LLaMA-Factory/saves/qwen25vl_7B_stage2/lora/predict_20250306_only_step_cp$checkpoint"
 ######## 运行前检查修改 ########
-adapter_path="/data4/yanxiaokai/LLaMA-Factory/saves/qwen25vl_7B_stage2/lora/sft"
-adapter_path="/data4/yanxiaokai/LLaMA-Factory/saves/qwen25vl_7B_stage2/lora/sft/checkpoint-$checkpoint"
-save_dir="/data4/yanxiaokai/LLaMA-Factory/saves/qwen25vl_7B_stage2/lora/predict_20250301_cp$checkpoint"
 
 
 model_path="/data4/yanxiaokai/Models/modelscope/hub/Qwen/Qwen2.5-VL-7B-Instruct"
