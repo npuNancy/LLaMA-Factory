@@ -4,7 +4,7 @@
 
 ############## 运行前检查并修改 ##########
 force_torchrun=1    # 是否强制使用 torchrun
-cuda_device="1,2"   # 使用的 GPU 设备
+cuda_device="6,7"   # 使用的 GPU 设备
 output_dir="saves/qwen25vl_7B_stage3/lora/sft" # checkpoint 保存目录
 ############## 运行前检查并修改 ##########
 
