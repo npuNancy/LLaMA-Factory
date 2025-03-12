@@ -1,6 +1,5 @@
 ## Train
 ### model
-# model_name_or_path: /home/yxk/models/Qwen2.5-VL-7B-Instruct ## A100_VPN
 model_name_or_path: /data4/yanxiaokai/Models/modelscope/hub/Qwen/Qwen2.5-VL-7B-Instruct ## THU_LM1
 image_max_pixels: 262144
 video_max_pixels: 16384
