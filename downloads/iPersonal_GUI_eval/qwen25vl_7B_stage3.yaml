@@ -1,5 +1,4 @@
 # The batch generation can be SLOW using this config.
-# For faster inference, we recommend to use `scripts/vllm_infer.py`.
 
 # ###############################################################
 # vllm 推理 
@@ -11,7 +10,7 @@
 #     --save_name saves/qwen25vl_7B_stage2/lora/predict_aitw_len_1.jsonl
 # ###############################################################
 # 推理+测试 
-# CUDA_VISIBLE_DEVICES=XX lmf train downloads/iPersonal_GUI_inference/qwen25vl_7B_stage3.yaml
+# CUDA_VISIBLE_DEVICES=XX lmf train downloads/iPersonal_GUI_eval/qwen25vl_7B_stage3.yaml
 # ###############################################################
 
 
