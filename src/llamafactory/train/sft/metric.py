@@ -314,8 +314,8 @@ class ComputeSimilarity:
         decoded_preds = self.tokenizer.batch_decode(preds, skip_special_tokens=True)
         decoded_labels = self.tokenizer.batch_decode(labels, skip_special_tokens=True)
 
-        # 计算阶段2指标
-        self.eval_stage_2(decoded_preds, decoded_labels)
+        ## 计算阶段2指标
+        # self.eval_stage_2(decoded_preds, decoded_labels)
 
         # 遍历预测结果和标签
         for pred, label in zip(decoded_preds, decoded_labels):

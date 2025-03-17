@@ -1,0 +1,51 @@
+# The batch generation can be SLOW using this config.
+# For faster inference, we recommend to use `scripts/vllm_infer.py`.
+
+# ###############################################################
+# vllm 推理 
+# CUDA_VISIBLE_DEVICES=6 python scripts/vllm_infer.py \
+#     --model_name_or_path /data4/yanxiaokai/Models/modelscope/hub/Qwen/Qwen2.5-VL-7B-Instruct \
+#     --adapter_name_or_path saves/qwen25vl_7B_stage3/lora/sft/checkpoint-4750 \
+#     --template qwen2_vl \
+#     --dataset iPersonal_GUI_stage3_sft_100_minitest \
+#     --save_name saves/qwen25vl_7B_stage2/lora/predict_aitw_len_1.jsonl
+# ###############################################################
+# 推理+测试 
+# CUDA_VISIBLE_DEVICES=XX lmf train downloads/iPersonal_GUI_inference/qwen25vl_7B_stage3.yaml
+# ###############################################################
+
+
+### model
+model_name_or_path: /data4/yanxiaokai/Models/modelscope/hub/Qwen/Qwen2.5-VL-7B-Instruct
+adapter_name_or_path: saves/qwen25vl_7B_stage3/lora/sft/checkpoint-4750
+trust_remote_code: true
+
+
+### method
+stage: sft
+do_eval: true
+finetuning_type: lora
+infer_backend: huggingface  # choices: [huggingface, vllm]
+
+### dataset
+eval_dataset: iPersonal_GUI_stage3_sft_100_minitest
+template: qwen2_vl
+cutoff_len: 1000000 # 输入的最大 token 数, 超过该长度会被截断。
+max_samples: 1000000  # 每个数据集的最大样本数, 超过将被截断。 默认是全部数据集;
+overwrite_cache: true  # 是否覆盖缓存的训练和评估数据集。
+preprocessing_num_workers: 16  # 预处理时使用的进程数量。
+
+
+### output
+output_dir: saves/qwen25vl_7B_stage3/lora/predict_cp4750_
+overwrite_output_dir: true
+
+
+### eval
+# per_device_eval_batch_size: 1
+# ddp_timeout: 180000000
+## predict_with_generate 和 compute_accuracy 不能同时用
+predict_with_generate: false ## 会调用 metrics 计算相似度 
+compute_accuracy: true ## 会调用 metrics 计算准确率
+
+

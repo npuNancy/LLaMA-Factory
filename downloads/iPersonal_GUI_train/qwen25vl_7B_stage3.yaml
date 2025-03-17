@@ -37,13 +37,13 @@ overwrite_output_dir: true
 per_device_train_batch_size: 1
 gradient_accumulation_steps: 2 # 梯度积累步数
 learning_rate: 1.0e-4
-num_train_epochs: 1
+num_train_epochs: 2
 lr_scheduler_type: cosine
 warmup_ratio: 0.1
 bf16: true
 ddp_timeout: 180000000
 
-# resume_from_checkpoint: saves/qwen25vl_7B_stage2/lora/sft/checkpoint-2000 # 断点重训
+resume_from_checkpoint: saves/qwen25vl_7B_stage3/lora/sft # 断点重训
 
 ### eval
 ## 可以使用 eval_dataset 指定验证集, 也可以使用 val_size 指定验证集比例
