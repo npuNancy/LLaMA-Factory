@@ -1,0 +1,15 @@
+### Note: DO NOT use quantized model or quantization_bit when merging lora adapters
+### lmf export downloads/iPersonal_GUI_export/qwen25vl_7B_stage3.yaml
+
+
+### model
+model_name_or_path: /data4/yanxiaokai/Models/modelscope/hub/Qwen/Qwen2.5-VL-7B-Instruct
+adapter_name_or_path: saves/qwen25vl_7B_stage3/lora/sft/checkpoint-4750
+template: qwen2_vl
+trust_remote_code: true
+
+### export
+export_dir: output/qwen25vl_7B_stage3
+export_size: 5
+export_device: cpu
+export_legacy_format: false
