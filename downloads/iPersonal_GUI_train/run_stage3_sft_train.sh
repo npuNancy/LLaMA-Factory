@@ -9,7 +9,7 @@ output_dir="saves/qwen25vl_7B_stage3/lora/sft" # checkpoint 保存目录
 ############## 运行前检查并修改 ##########
 
 # 模型训练的配置文件路径
-train_config="downloads/iPersonal_GUI_train/qwen25vl_7B_stage3.yaml"
+train_config="downloads/iPersonal_GUI_train/qwen25vl_7B_stage3_sft.yaml"
 
 
 # 修改配置文件中的 output_dir 字段
