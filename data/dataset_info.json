@@ -661,6 +661,30 @@
       "system_tag": "system"
     }
   },
+  "iPersonal_GUI_stage3_dpo_shot_8_train": {
+    "file_name": "/data4/yanxiaokai/data/iPersonal-GUI/stage3/honor_datasets/dpo/train/train_DPO_8_shot.json",
+    "formatting": "sharegpt",
+    "ranking": true,
+    "columns": {
+      "messages": "conversations",
+      "system": "system",
+      "tools": "tools",
+      "chosen": "chosen",
+      "rejected": "rejected"
+    }
+  },
+  "iPersonal_GUI_stage3_dpo_shot_8_test": {
+    "file_name": "/data4/yanxiaokai/data/iPersonal-GUI/stage3/honor_datasets/dpo/test/test_DPO_8_shot.json",
+    "formatting": "sharegpt",
+    "ranking": true,
+    "columns": {
+      "messages": "conversations",
+      "system": "system",
+      "tools": "tools",
+      "chosen": "chosen",
+      "rejected": "rejected"
+    }
+  },
   "iPersonal_GUI_stage3_test_0_shot": {
     "file_name": "/data4/yanxiaokai/data/iPersonal-GUI/stage3/honor_datasets/test/test_0_shot.json",
     "formatting": "sharegpt",
