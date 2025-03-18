@@ -16,7 +16,7 @@ lora_target: all
 pref_beta: 0.1 # 偏好损失中的 beta 参数
 pref_loss: sigmoid  # choices: [sigmoid (dpo), orpo, simpo]
 ## deepspeed
-deepspeed: examples/deepspeed/ds_z3_config.json  # choices: [ds_z0_config.json, ds_z2_config.json, ds_z3_config.json]
+deepspeed: examples/deepspeed/ds_z3_offload_config.json  # choices: [ds_z0_config.json, ds_z2_config.json, ds_z3_config.json]
 
 
 ### dataset
