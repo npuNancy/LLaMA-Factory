@@ -1,4 +1,5 @@
 ## Train
+## FORCE_TORCHRUN=1 CUDA_VISIBLE_DEVICES=3,4,5 lmf train downloads/iPersonal_GUI_train/qwen25vl_7B_stage3_dpo.yaml  > saves/qwen25vl_7B_stage3/lora/log/train_log_dpo_20250318.txt 2>&1
 ### model
 ## 使用 LoRA 合并后的模型
 model_name_or_path: output/qwen25vl_7B_stage3_sft
@@ -14,6 +15,8 @@ lora_rank: 8
 lora_target: all
 pref_beta: 0.1 # 偏好损失中的 beta 参数
 pref_loss: sigmoid  # choices: [sigmoid (dpo), orpo, simpo]
+## deepspeed
+deepspeed: examples/deepspeed/ds_z3_config.json  # choices: [ds_z0_config.json, ds_z2_config.json, ds_z3_config.json]
 
 
 ### dataset
