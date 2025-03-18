@@ -48,23 +48,23 @@ class GPUGet:
         force_torchrun = "1" if min_gpu_number > 1 else "0"
 
         # 模型训练的配置文件路径
-        train_config = "/data4/yanxiaokai/LLaMA-Factory/downloads/iPersonal_GUI_train/qwen25vl_7B_stage3_sft.yaml"
+        train_config = os.path.join(os.getcwd(), "downloads/iPersonal_GUI_train/qwen25vl_7B_stage3_sft.yaml")
         # 修改配置文件中的 output_dir 字段
         # sed -i "/^output_dir:/s|.*|output_dir: $output_dir|" $train_config
         command_sed = f"""sed -i "/^output_dir:/s|.*|output_dir: {output_dir}|" {train_config}"""
-        print(command_sed)
+        print("执行: ", command_sed)
         os.system(command_sed)
 
         ## 日志
         # 保存训练日志的目录
-        save_dir = "/data4/yanxiaokai/LLaMA-Factory/saves/qwen25vl_7B_stage3/lora/log"
+        save_dir =  os.path.join(os.getcwd(), "saves/qwen25vl_7B_stage3/lora/log")
         os.makedirs(save_dir, exist_ok=True)
         # 动态生成一个带有时间戳的日志文件名
         log_file = f"{save_dir}/train_log_{datetime.now().strftime('%Y%m%d')}.txt"
 
         # FORCE_TORCHRUN=${force_torchrun} CUDA_VISIBLE_DEVICES="$cuda_device" lmf train ${train_config} > ${log_file} 2>&1
         command_train = f"""FORCE_TORCHRUN={force_torchrun} CUDA_VISIBLE_DEVICES={cuda_device} lmf train {train_config} > {log_file} 2>&1"""
-        print(command_train)
+        print("执行: ", command_train)
         os.system(command_train)
 
     def run_stage3_dpo(self, min_gpu_number, output_dir):
@@ -75,7 +75,7 @@ class GPUGet:
         force_torchrun = "1" if min_gpu_number > 1 else "0"
 
         # 模型训练的配置文件路径
-        train_config = "/data4/yanxiaokai/LLaMA-Factory/downloads/iPersonal_GUI_train/qwen25vl_7B_stage3_dpo.yaml"
+        train_config = os.path.join(os.getcwd(), "downloads/iPersonal_GUI_train/qwen25vl_7B_stage3_dpo.yaml")
         # 修改配置文件中的 output_dir 字段
         # sed -i "/^output_dir:/s|.*|output_dir: $output_dir|" $train_config
         command_sed = f"""sed -i "/^output_dir:/s|.*|output_dir: {output_dir}|" {train_config}"""
@@ -84,7 +84,7 @@ class GPUGet:
 
         ## 日志
         # 保存训练日志的目录
-        save_dir = "/data4/yanxiaokai/LLaMA-Factory/saves/qwen25vl_7B_stage3/lora/log"
+        save_dir = os.path.join(os.getcwd(), "saves/qwen25vl_7B_stage3/lora/log")
         os.makedirs(save_dir, exist_ok=True)
         # 动态生成一个带有时间戳的日志文件名
         log_file = f"{save_dir}/dpo_log_{datetime.now().strftime('%Y%m%d')}.txt"
