@@ -9,7 +9,7 @@ template: qwen2_vl
 trust_remote_code: true
 
 ### export
-export_dir: output/qwen25vl_7B_stage3
+export_dir: output/qwen25vl_7B_stage3_sft
 export_size: 5
 export_device: cpu
 export_legacy_format: false
