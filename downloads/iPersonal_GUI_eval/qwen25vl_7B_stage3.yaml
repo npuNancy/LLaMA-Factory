@@ -6,7 +6,7 @@
 #     --model_name_or_path /data4/yanxiaokai/Models/modelscope/hub/Qwen/Qwen2.5-VL-7B-Instruct \
 #     --adapter_name_or_path saves/qwen25vl_7B_stage3/lora/sft/checkpoint-4750 \
 #     --template qwen2_vl \
-#     --dataset iPersonal_GUI_stage3_sft_100_minitest \
+#     --dataset iPersonal_GUI_stage3_sft_100_test \
 #     --save_name saves/qwen25vl_7B_stage2/lora/predict_aitw_len_1.jsonl
 # ###############################################################
 # 推理+测试 
@@ -31,7 +31,7 @@ infer_backend: huggingface  # choices: [huggingface, vllm]
 deepspeed: examples/deepspeed/ds_z3_config.json  # choices: [ds_z0_config.json, ds_z2_config.json, ds_z3_config.json]
 
 ### dataset
-# eval_dataset: iPersonal_GUI_stage3_sft_100_minitest     # 相同user
+# eval_dataset: iPersonal_GUI_stage3_sft_100_test     # 相同user
 eval_dataset: iPersonal_GUI_stage3_test_0_shot            # 不同user
 template: qwen2_vl
 cutoff_len: 1000000 # 输入的最大 token 数, 超过该长度会被截断。

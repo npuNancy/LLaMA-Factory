@@ -48,7 +48,7 @@ resume_from_checkpoint: saves/qwen25vl_7B_stage3/lora/sft # 断点重训
 ### eval
 ## 可以使用 eval_dataset 指定验证集, 也可以使用 val_size 指定验证集比例
 val_size: 0.05 # 20000*0.05=1000
-# eval_dataset: iPersonal_GUI_stage3_sft_100_minitest
+# eval_dataset: iPersonal_GUI_stage3_sft_100_test
 per_device_eval_batch_size: 1
 eval_strategy: steps
 eval_steps: 500
