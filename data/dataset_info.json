@@ -654,7 +654,6 @@
     "columns": {
       "messages": "conversations",
       "system": "system",
-      "tools": "tools",
       "chosen": "chosen",
       "rejected": "rejected"
     }
@@ -666,7 +665,6 @@
     "columns": {
       "messages": "conversations",
       "system": "system",
-      "tools": "tools",
       "chosen": "chosen",
       "rejected": "rejected"
     }
