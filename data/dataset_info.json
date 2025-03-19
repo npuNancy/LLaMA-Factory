@@ -648,7 +648,7 @@
     }
   },
   "iPersonal_GUI_stage3_sft_100_20way_train": {
-    "file_name": "/data4/yanxiaokai/data/iPersonal-GUI/stage3/honor_datasets/sft_100/sft_100_20way/train_20way.json",
+    "file_name": "/data4/yanxiaokai/data/iPersonal-GUI/stage3/honor_datasets/sft_100_20way/train_20way.json",
     "formatting": "sharegpt",
     "columns": {
       "messages": "messages"
@@ -662,7 +662,7 @@
     }
   },
   "iPersonal_GUI_stage3_sft_100_20way_test": {
-    "file_name": "/data4/yanxiaokai/data/iPersonal-GUI/stage3/honor_datasets/sft_100/sft_100_20way/test_20way.json",
+    "file_name": "/data4/yanxiaokai/data/iPersonal-GUI/stage3/honor_datasets/sft_100_20way/test_20way.json",
     "formatting": "sharegpt",
     "columns": {
       "messages": "messages"

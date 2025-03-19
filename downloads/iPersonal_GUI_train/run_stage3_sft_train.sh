@@ -3,9 +3,9 @@
 # FORCE_TORCHRUN=1 CUDA_VISIBLE_DEVICES=3,4,5 lmf train downloads/iPersonal_GUI_train/qwen25vl_7B_stage3.yaml  > /data4/yanxiaokai/LLaMA-Factory/saves/qwen25vl_7B_stage3/lora/train_log_20250303.txt 2>&1
 
 ############## 运行前检查并修改 ##########
-force_torchrun=1    # 是否强制使用 torchrun
-cuda_device="6,7"   # 使用的 GPU 设备
-output_dir="saves/qwen25vl_7B_stage3/lora/sft" # checkpoint 保存目录
+force_torchrun=0    # 是否强制使用 torchrun
+cuda_device="1"   # 使用的 GPU 设备
+output_dir="saves/qwen25vl_7B_stage3/lora/sft_20way" # checkpoint 保存目录
 ############## 运行前检查并修改 ##########
 
 # 模型训练的配置文件路径
