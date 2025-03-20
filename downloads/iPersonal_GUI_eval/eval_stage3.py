@@ -1,4 +1,7 @@
 import os
+import torch
+
+os.environ["CUDA_VISIBLE_DEVICES"] = "1"
 import re
 import json
 import numpy as np
@@ -26,9 +29,10 @@ def main(filepath, threshold=0.95):
     label_list = []
     # 对每一组数据进行评估
     for item in data:
+        item = item.replace("<|im_start|>", "").replace("<|im_end|>", "")
         item = json.loads(item)
-        predict = json.loads(item["predict"])["Proactive Task"]
-        label = json.loads(item["label"])["Proactive Task"]
+        predict = json.loads(item["predict"].strip())["Proactive Task"]
+        label = json.loads(item["label"].strip())["Proactive Task"]
         predict_list.append(predict)
         label_list.append(label)
 
@@ -48,5 +52,6 @@ def main(filepath, threshold=0.95):
 
 
 if __name__ == "__main__":
-    dir = "/data4/yanxiaokai/LLaMA-Factory/saves/qwen25vl_7B_stage3/lora/predict_cp4750_same_user/generated_predictions.jsonl"
-    main(dir)
+    dir = "/data4/yanxiaokai/LLaMA-Factory/saves/qwen25vl_7B_stage3/lora/predict_cp4750_same_user/generated_predictions.jsonl"  # 22.6%
+    filepath = "/data4/yanxiaokai/LLaMA-Factory/saves/qwen25vl_7B_stage3/lora/predict_20way.jsonl"  # 34.94%
+    main(filepath=filepath)
