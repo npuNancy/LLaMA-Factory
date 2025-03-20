@@ -29,10 +29,18 @@ def main(filepath, threshold=0.95):
     label_list = []
     # 对每一组数据进行评估
     for item in data:
-        item = item.replace("<|im_start|>", "").replace("<|im_end|>", "")
-        item = json.loads(item)
-        predict = json.loads(item["predict"].strip())["Proactive Task"]
-        label = json.loads(item["label"].strip())["Proactive Task"]
+        try:
+            item = item.replace("<|im_start|>", "").replace("<|im_end|>", "")
+            item = json.loads(item)
+            predict = json.loads(item["predict"].strip())["Proactive Task"]
+            label = json.loads(item["label"].strip())["Proactive Task"]
+        except:
+            predict = None
+            label = None
+
+        predict = "null" if not predict else predict
+        label = "null" if not label else label
+
         predict_list.append(predict)
         label_list.append(label)
 
@@ -52,6 +60,9 @@ def main(filepath, threshold=0.95):
 
 
 if __name__ == "__main__":
-    dir = "/data4/yanxiaokai/LLaMA-Factory/saves/qwen25vl_7B_stage3/lora/predict_cp4750_same_user/generated_predictions.jsonl"  # 22.6%
-    filepath = "/data4/yanxiaokai/LLaMA-Factory/saves/qwen25vl_7B_stage3/lora/predict_20way.jsonl"  # 34.94%
+    filepath = "saves/qwen25vl_7B_stage3/lora/predict_cp4750_same_user/generated_predictions.jsonl"  # 22.6%
+    filepath = "saves/qwen25vl_7B_stage3/lora/predict_20way_sft_ours/predict_20way.jsonl"  # 34.94%
+    filepath = "saves/qwen25vl_7B_stage3/lora/predict_20way_sft_qwen2.5VL7B/predict_20way_qwen2.5VL7B.jsonl"  # 18.72%
+    filepath = "saves/qwen25vl_7B_stage3/lora/predict_20way_sft_gpt-3.5-turbo/generated_predictions.jsonl"  # 7.35%
+    filepath = "saves/qwen25vl_7B_stage3/lora/predict_20way_sft_gpt-4o/generated_predictions.jsonl"  # 7.35%
     main(filepath=filepath)
