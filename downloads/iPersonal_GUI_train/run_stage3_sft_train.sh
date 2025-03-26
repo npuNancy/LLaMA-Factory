@@ -4,12 +4,10 @@
 
 ############## 运行前检查并修改 ##########
 force_torchrun=0    # 是否强制使用 torchrun
-cuda_device="0"   # 使用的 GPU 设备
+cuda_device="3"   # 使用的 GPU 设备
 output_dir="saves/qwen25_7B_stage3/lora/sft_100user_20way_event" # checkpoint 保存目录
+train_config="downloads/iPersonal_GUI_train/qwen25_7B_stage3_sft.yaml" # 配置文件路径
 ############## 运行前检查并修改 ##########
-
-# 模型训练的配置文件路径
-train_config="downloads/iPersonal_GUI_train/qwen25vl_7B_stage3_sft.yaml"
 
 
 # 修改配置文件中的 output_dir 字段
