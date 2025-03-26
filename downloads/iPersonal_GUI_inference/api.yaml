@@ -1,0 +1,7 @@
+### model
+## API_PORT=8000 CUDA_VISIBLE_DEVICES=0 lmf api downloads/iPersonal_GUI_inference/api.yaml
+model_name_or_path: /data4/yanxiaokai/Models/modelscope/hub/Qwen/Qwen2.5-VL-7B-Instruct
+adapter_name_or_path: saves/qwen25vl_7B_stage3/lora/sft_100user_20way_event
+trust_remote_code: true
+template: qwen2_vl
+finetuning_type: lora
