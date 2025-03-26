@@ -50,6 +50,7 @@ def vllm_infer(
     pipeline_parallel_size: int = 1,
     image_max_pixels: int = 768 * 768,
     image_min_pixels: int = 32 * 32,
+    gpu_memory_utilization: float = 0.5,
 ):
     r"""
     Performs batch generation using vLLM engine, which supports tensor parallelism.
@@ -125,6 +126,7 @@ def vllm_infer(
         "pipeline_parallel_size": pipeline_parallel_size,
         "disable_log_stats": True,
         "enable_lora": model_args.adapter_name_or_path is not None,
+        "gpu_memory_utilization": gpu_memory_utilization,
     }
     if template_obj.mm_plugin.__class__.__name__ != "BasePlugin":
         engine_args["limit_mm_per_prompt"] = {"image": 4, "video": 2}
