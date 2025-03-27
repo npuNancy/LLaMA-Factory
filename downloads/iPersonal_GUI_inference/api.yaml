@@ -5,3 +5,5 @@ adapter_name_or_path: saves/qwen25vl_7B_stage3/lora/sft_100user_20way_event
 trust_remote_code: true
 template: qwen2_vl
 finetuning_type: lora
+infer_backend: vllm
+vllm_enforce_eager: true
