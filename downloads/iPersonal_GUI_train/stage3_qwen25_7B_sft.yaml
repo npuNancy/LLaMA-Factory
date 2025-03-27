@@ -14,6 +14,9 @@ lora_rank: 8
 lora_alpha: 16
 lora_target: all
 
+# 要添加到 tokenizer 中的 special token。多个 special token 用逗号分隔。
+new_special_tokens: ["<Role>","</Role>","<Task>","</Task>","<Format>","</Format>","<Rules>","</Rules>"]
+
 freeze_vision_tower: true # choices: [true, false] Whether ot not to freeze vision tower in MLLM training. default=True
 freeze_multi_modal_projector: true # choices: [true, false] Whether or not to freeze the multi modal projector in MLLM training. default=True
 train_mm_proj_only: false # choices: [true, false ]Whether or not to train the multimodal projector for MLLM only. default=False
