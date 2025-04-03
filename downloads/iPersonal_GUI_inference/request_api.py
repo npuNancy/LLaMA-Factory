@@ -25,7 +25,7 @@ def create_chat_completion(
     base_url: str,
     model: str,
     messages: List[Dict[str, Any]],
-    max_tokens: int = 1000000,
+    max_tokens: int = 10000,
     top_p: float = 1.0,
     temperature: float = 1.0,
     presence_penalty: float = 1.0,
@@ -86,7 +86,7 @@ class AsyncLLMAPI:
     model: str = "gpt-3.5-turbo"
 
     temperature: float = 1.0
-    max_tokens: int = 1000000
+    max_tokens: int = 10000
     timeout: int = None
     max_retries: int = 1
 
@@ -263,7 +263,9 @@ if __name__ == "__main__":
 
     dir = "/data4/yanxiaokai/LLaMA-Factory/data/iPersonal-GUI/stage3/honor_datasets/sft_100_20way/test_20way_read.json"
     dir = "/data4/yanxiaokai/LLaMA-Factory/data/iPersonal-GUI/stage3/honor_datasets/sft_100_20way/test_20way.json"
-    dir = "/data4/yanxiaokai/LLaMA-Factory/data/iPersonal-GUI/stage3/honor_datasets/sft_100_20way/test_20way_no_null.json"
+    dir = (
+        "/data4/yanxiaokai/LLaMA-Factory/data/iPersonal-GUI/stage3/honor_datasets/sft_100_20way/test_20way_no_null.json"
+    )
     model = "gpt-4o"
     output_dir = f"saves/qwen25vl_7B_stage3/lora/predict_20way_sft_{model}"
     main(dir, output_dir, model=model, chunk_size=100)
