@@ -14,7 +14,7 @@ lora_alpha: 16
 lora_target: all
 
 # deepspeed 分布式训练
-deepspeed: examples/deepspeed/ds_z3_config.json  # choices: [ds_z0_config.json, ds_z2_config.json, ds_z3_config.json]
+# deepspeed: examples/deepspeed/ds_z3_config.json  # choices: [ds_z0_config.json, ds_z2_config.json, ds_z3_config.json]
 
 # 要添加到 tokenizer 中的 special token。多个 special token 用逗号分隔。
 # new_special_tokens: ["<Role>","</Role>","<Task>","</Task>","<Format>","</Format>","<Rules>","</Rules>","<choices>","</choices>"]
