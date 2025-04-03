@@ -703,6 +703,34 @@
       "system_tag": "system"
     }
   },
+  "iPersonal_GUI_stage3_sft_100user_20way_event_zh2en_train": {
+    "file_name": "/data4/yanxiaokai/data/iPersonal-GUI/stage3/honor_datasets/sft_100user_20way_event/train_20way_zh2en.json",
+    "formatting": "sharegpt",
+    "columns": {
+      "messages": "messages"
+    },
+    "tags": {
+      "role_tag": "role",
+      "content_tag": "content",
+      "user_tag": "user",
+      "assistant_tag": "assistant",
+      "system_tag": "system"
+    }
+  },
+  "iPersonal_GUI_stage3_sft_100user_20way_event_zh2en_test": {
+    "file_name": "/data4/yanxiaokai/data/iPersonal-GUI/stage3/honor_datasets/sft_100user_20way_event/test_20way_zh2en.json",
+    "formatting": "sharegpt",
+    "columns": {
+      "messages": "messages"
+    },
+    "tags": {
+      "role_tag": "role",
+      "content_tag": "content",
+      "user_tag": "user",
+      "assistant_tag": "assistant",
+      "system_tag": "system"
+    }
+  },
   "iPersonal_GUI_stage3_sft_100user_20way_event_zh_train": {
     "file_name": "/data4/yanxiaokai/data/iPersonal-GUI/stage3/honor_datasets/sft_100user_20way_event_zh/train_20way.json",
     "formatting": "sharegpt",
