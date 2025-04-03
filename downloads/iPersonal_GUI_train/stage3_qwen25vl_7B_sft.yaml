@@ -13,6 +13,9 @@ lora_rank: 8
 lora_alpha: 16
 lora_target: all
 
+# deepspeed 分布式训练
+deepspeed: examples/deepspeed/ds_z3_config.json  # choices: [ds_z0_config.json, ds_z2_config.json, ds_z3_config.json]
+
 # 要添加到 tokenizer 中的 special token。多个 special token 用逗号分隔。
 # new_special_tokens: ["<Role>","</Role>","<Task>","</Task>","<Format>","</Format>","<Rules>","</Rules>","<choices>","</choices>"]
 new_special_tokens: "<Role>,</Role>,<Task>,</Task>,<Format>,</Format>,<Rules>,</Rules>,<choices>,</choices>"
@@ -34,7 +37,7 @@ preprocessing_num_workers: 16 # 预处理时使用的进程数量。
 
 ### output
 # TODO: 开始训练前修改 output_dir
-output_dir: saves/qwen25_7B_stage3/lora/sft_100user_20way_event
+output_dir: saves/qwen25vl_7B_stage3/lora/sft_100user_20way_event_zh2en
 logging_steps: 100
 save_steps: 1000
 plot_loss: true
