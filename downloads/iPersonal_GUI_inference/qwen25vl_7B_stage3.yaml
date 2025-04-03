@@ -5,11 +5,12 @@
 ## vllm 推理 
 # CUDA_VISIBLE_DEVICES=1 python scripts/vllm_infer.py \
 #     --model_name_or_path /data4/yanxiaokai/Models/modelscope/hub/Qwen/Qwen2.5-VL-7B-Instruct \
-#     --adapter_name_or_path saves/qwen25vl_7B_stage3/lora/sft_100user_20way_event \
+#     --adapter_name_or_path saves/qwen25vl_7B_stage3/lora/sft_100user_20way_event/checkpoint-15000 \
 #     --template qwen2_vl \
-#     --vllm_gpu_util 0.3 \
-#     --cutoff_len 1000000 \
-#     --max_samples 1000000 \
+#     --gpu_memory_utilization 0.15 \
+#     --vllm_gpu_util 0.15 \
+#     --cutoff_len 10000 \
+#     --max_samples 1000 \
 #     --dataset iPersonal_GUI_stage3_sft_100user_20way_event_test \
 #     --save_name saves/qwen25vl_7B_stage3/lora/predict_100user_20way_event.jsonl
 # ###############################################################
@@ -30,10 +31,13 @@ do_predict: true
 finetuning_type: lora
 infer_backend: huggingface  # choices: [huggingface, vllm]
 
+# 要添加到 tokenizer 中的 special token。多个 special token 用逗号分隔。
+new_special_tokens: "<Role>,</Role>,<Task>,</Task>,<Format>,</Format>,<Rules>,</Rules>,<choices>,</choices>"
+
 ### dataset
 eval_dataset: iPersonal_GUI_stage3_sft_100user_20way_event_test
 template: qwen2_vl
-cutoff_len: 1000000 # 输入的最大 token 数, 超过该长度会被截断。
+cutoff_len: 10000 # 输入的最大 token 数, 超过该长度会被截断。
 max_samples: 500  # 每个数据集的最大样本数, 超过将被截断。 默认是全部数据集;
 overwrite_cache: true  # 是否覆盖缓存的训练和评估数据集。
 preprocessing_num_workers: 16  # 预处理时使用的进程数量。

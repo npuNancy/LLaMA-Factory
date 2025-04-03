@@ -6,6 +6,7 @@ import re
 import json
 import numpy as np
 from typing import List, Dict
+from json.decoder import JSONDecodeError
 
 from sentence_transformers import SentenceTransformer
 
@@ -35,12 +36,12 @@ def main(filepath, threshold=0.95):
             item = json.loads(item)
             predict = json.loads(item["predict"].strip())["Proactive Task"]
             label = json.loads(item["label"].strip())["Proactive Task"]
+        except JSONDecodeError:
+            predict = item["predict"].strip()
+            label = item["label"].strip()
         except:
-            predict = None
-            label = None
-
-        predict = "null" if not predict else predict
-        label = "null" if not label else label
+            predict = "null"
+            label = "null"
 
         predict_list.append(predict)
         label_list.append(label)
@@ -72,6 +73,8 @@ def main(filepath, threshold=0.95):
 
 
 if __name__ == "__main__":
+    filepath = "saves/qwen25_7B_stage3/lora/predict_100user_20way_event/predict_100user_20way_event.jsonl"  # Acc: 39.94% SimAcc: 44.54% AvgAcc: 27.80%
+
     filepath = "saves/qwen25vl_7B_stage3/lora/predict_cp4750_same_user/generated_predictions.jsonl"  # 22.6%
     filepath = "saves/qwen25vl_7B_stage3/lora/predict_20way_sft_ours/predict_20way.jsonl"  # 34.94%
     filepath = "saves/qwen25vl_7B_stage3/lora/predict_20way_sft_qwen2.5VL7B/predict_20way_qwen2.5VL7B.jsonl"  # 18.72%
@@ -79,6 +82,5 @@ if __name__ == "__main__":
     filepath = "saves/qwen25vl_7B_stage3/lora/predict_20way_sft_gpt-4o/generated_predictions.jsonl"  # 7.35%
     filepath = "saves/qwen25vl_7B_stage3/lora/predict_100user_20way_event/generated_predictions.jsonl"  # Acc: 45.00% SimAcc: 46.90% AvgAcc: 31.48%
     filepath = "saves/qwen25vl_7B_stage3/lora/predict_100user_200way_event/generated_predictions.jsonl"  # Acc: 31.2%, AvgAcc: 18.72%
-    filepath = "saves/qwen25_7B_stage3/lora/predict_100user_20way_event/predict_100user_20way_event.jsonl"  # Acc: 39.94% SimAcc: 44.54% AvgAcc: 27.80%
-
+    filepath = "saves/qwen25vl_7B_stage3/lora/predict_100user_20way_event(cp_15000)/generated_predictions.jsonl"  # Acc: 35.80%, SimAcc: 35.80%, AvgAcc: 24.39%
     main(filepath=filepath)
