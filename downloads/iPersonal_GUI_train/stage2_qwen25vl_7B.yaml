@@ -28,7 +28,7 @@ preprocessing_num_workers: 16 # 预处理时使用的进程数量。
 ### output
 output_dir: saves/qwen25vl_7B_stage2/lora/sft_only_step # TODO: 每次修改路径
 logging_steps: 100
-save_steps: 500
+save_steps: 1000
 plot_loss: true
 overwrite_output_dir: true
 

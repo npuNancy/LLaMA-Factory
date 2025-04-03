@@ -35,7 +35,7 @@ preprocessing_num_workers: 16 # 预处理时使用的进程数量。
 # TODO: 开始训练前修改 output_dir
 output_dir: saves/qwen25_7B_stage3/lora/sft_100user_20way_event
 logging_steps: 100
-save_steps: 500
+save_steps: 1000
 plot_loss: true
 overwrite_output_dir: true
 
