@@ -34,6 +34,7 @@ from .pt import run_pt
 from .rm import run_rm
 from .sft import run_sft
 from .trainer_utils import get_ray_trainer, get_swanlab_callback
+from .MAML_dpo import run_maml_dpo
 
 
 if is_ray_available():
@@ -73,6 +74,8 @@ def _training_function(config: Dict[str, Any]) -> None:
         run_dpo(model_args, data_args, training_args, finetuning_args, callbacks)
     elif finetuning_args.stage == "kto":
         run_kto(model_args, data_args, training_args, finetuning_args, callbacks)
+    elif finetuning_args.stage == "maml_dpo":
+        run_maml_dpo(model_args, data_args, training_args, finetuning_args, callbacks)
     else:
         raise ValueError(f"Unknown task: {finetuning_args.stage}.")
 
