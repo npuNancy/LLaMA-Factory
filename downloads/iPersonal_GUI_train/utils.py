@@ -1,7 +1,18 @@
 import os
 import json
-from matplotlib import pyplot as plt
 import numpy as np
+import setproctitle
+from matplotlib import pyplot as plt
+
+
+def set_proc_title():
+    # 获取conda环境名和用户名
+    conda_env = os.environ.get("CONDA_DEFAULT_ENV", "unknown_env")
+    username = os.environ.get("USER", "unknown_user")
+
+    # 设置进程名格式：conda_env@username
+    new_proc_name = f"{conda_env}@{username}"
+    setproctitle.setproctitle(new_proc_name)
 
 
 def plot_train_eval(filepath):
