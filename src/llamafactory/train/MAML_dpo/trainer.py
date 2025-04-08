@@ -28,6 +28,11 @@ from trl import DPOTrainer
 from trl.trainer import disable_dropout_in_model
 from typing_extensions import override
 
+import copy
+from torch import nn, optim
+from torch.utils.data import Dataset
+from peft import PeftModel, PeftConfig
+
 from ...extras.constants import IGNORE_INDEX
 from ...extras.packages import is_transformers_version_greater_than
 from ..callbacks import SaveProcessorCallback
@@ -36,6 +41,7 @@ from ..trainer_utils import create_custom_optimizer, create_custom_scheduler, ge
 
 if TYPE_CHECKING:
     from transformers import PreTrainedModel, ProcessorMixin
+    from transformers import TrainerCallback
 
     from ...hparams import FinetuningArguments
 
@@ -191,7 +197,7 @@ class CustomDPOTrainer(DPOTrainer):
         Computes loss for preference learning.
         计算偏好学习的损失。
         """
-        # 如果不使用ref_model，则根据loss_type计算loss
+        # 如果 use_ref_model==False, 则根据loss_type计算loss
         if not self.finetuning_args.use_ref_model:
             if self.loss_type == "orpo":
                 losses = self.odds_ratio_loss(policy_chosen_logps, policy_rejected_logps)
@@ -203,7 +209,7 @@ class CustomDPOTrainer(DPOTrainer):
             chosen_rewards = self.beta * policy_chosen_logps.to(self.accelerator.device).detach()
             rejected_rewards = self.beta * policy_rejected_logps.to(self.accelerator.device).detach()
         else:
-            # 如果使用ref_model，则调用dpo_loss计算loss
+            # 如果使用 use_ref_model==True, 则调用dpo_loss计算loss
             losses, chosen_rewards, rejected_rewards = self.dpo_loss(
                 policy_chosen_logps, policy_rejected_logps, reference_chosen_logps, reference_rejected_logps
             )
@@ -258,7 +264,7 @@ class CustomDPOTrainer(DPOTrainer):
         if not self.finetuning_args.use_ref_model:
             return None, None
 
-        # 如果ref_model为None，则将model赋值给ref_model，并调用disable_adapter方法
+        # 如果ref_model为None，则将model赋值给ref_model，并调用 disable_adapter 方法
         if self.ref_model is None:
             ref_model = model
             ref_context = self.accelerator.unwrap_model(model).disable_adapter()
@@ -376,3 +382,263 @@ class CustomDPOTrainer(DPOTrainer):
 
         # 返回Trainer.log函数的结果
         return Trainer.log(self, logs, *args, **kwargs)
+
+
+class MAMLDPOTrainer(CustomDPOTrainer):
+    """
+    基于CustomDPOTrainer实现的MAMLDPOTrainer类
+    """
+
+
+'''
+class MAMLDPOTrainerKimi(DPOTrainer):
+    """
+    A trainer class that combines Model-Agnostic Meta-Learning (MAML) with Direct Preference Optimization (DPO).
+    This trainer implements the MAML inner and outer loops on top of the DPO training framework.
+    """
+
+    def __init__(
+        self,
+        model: PreTrainedModel,
+        args,
+        data_collator=None,
+        train_dataset: Optional[Dataset] = None,
+        eval_dataset: Optional[Dataset] = None,
+        tokenizer: Optional[PreTrainedModel] = None,
+        model_wrapped: Optional[PreTrainedModel] = None,
+        reward_model: Optional[PreTrainedModel] = None,
+        callbacks: Optional[List[TrainerCallback]] = None,
+        alpha: float = 0.1,  # Inner loop learning rate
+        beta: float = 0.01,  # Outer loop learning rate
+        num_inner_steps: int = 5,  # Number of inner loop steps
+        **kwargs,
+    ):
+        super().__init__(
+            model=model,
+            args=args,
+            data_collator=data_collator,
+            train_dataset=train_dataset,
+            eval_dataset=eval_dataset,
+            tokenizer=tokenizer,
+            model_wrapped=model_wrapped,
+            reward_model=reward_model,
+            callbacks=callbacks,
+            **kwargs,
+        )
+
+        self.alpha = alpha
+        self.beta = beta
+        self.num_inner_steps = num_inner_steps
+
+        # Create a temporary model for inner loop updates
+        self.inner_model = self._create_inner_model()
+
+    def _create_inner_model(self):
+        """Create a model for inner loop updates"""
+        # If using PEFT, create a PeftModel for the inner loop
+        if isinstance(self.model, PeftModel):
+            return PeftModel.from_pretrained(self.model.base_model, self.model.peft_config)
+        else:
+            return self.model.__class__.from_pretrained(self.model.config)
+
+    def inner_loop_update(self, task_data):
+        """Perform inner loop updates for a specific task"""
+        # Save original parameters
+        original_params = {n: p.clone() for n, p in self.inner_model.named_parameters()}
+
+        # Perform multiple inner loop updates
+        for _ in range(self.num_inner_steps):
+            # Forward pass
+            outputs = self.inner_model(**task_data)
+
+            # Compute loss (using DPO loss)
+            loss = self.dpo_loss(outputs.chosen, outputs.rejected)
+
+            # Backward pass
+            loss.backward()
+
+            # Update inner model parameters
+            with torch.no_grad():
+                for n, p in self.inner_model.named_parameters():
+                    if p.grad is not None:
+                        p -= self.alpha * p.grad
+                        p.grad.zero_()
+
+        return original_params
+
+    def compute_loss(
+        self,
+        model: nn.Module,
+        inputs: Dict[str, torch.Tensor],
+        return_outputs=False,
+    ) -> torch.Tensor:
+        """
+        Compute the loss using MAML's outer loop update
+        """
+        # Split inputs into tasks
+        tasks = self._split_into_tasks(inputs)
+
+        # Initialize meta-loss
+        meta_loss = 0
+
+        # Outer loop: Iterate over tasks
+        for task in tasks:
+            # Inner loop: Adapt to task
+            original_params = self.inner_loop_update(task)
+
+            # Compute loss on adapted parameters
+            outputs = self.inner_model(**task)
+            task_loss = self.dpo_loss(outputs.chosen, outputs.rejected)
+
+            # Accumulate meta-loss
+            meta_loss += task_loss
+
+            # Restore original parameters for next task
+            with torch.no_grad():
+                for n, p in self.inner_model.named_parameters():
+                    p.copy_(original_params[n])
+
+        # Compute gradients for outer loop update
+        meta_loss.backward()
+
+        # Update outer model parameters
+        with torch.no_grad():
+            for n, p_outer in model.named_parameters():
+                if p_outer.grad is not None:
+                    p_outer -= self.beta * p_outer.grad
+                    p_outer.grad.zero_()
+
+        return meta_loss
+
+    def _split_into_tasks(self, inputs):
+        """Split batch into individual tasks for MAML"""
+        # This is a placeholder - actual implementation depends on your data structure
+        # For demonstration, we assume each batch contains multiple tasks
+        # You would need to implement this based on your specific use case
+
+        # Example: Split batch into N tasks
+        batch_size = inputs["input_ids"].shape[0]
+        num_tasks = batch_size // 2  # Assuming each task has 2 samples
+
+        tasks = []
+        for i in range(num_tasks):
+            task_data = {
+                "input_ids": inputs["input_ids"][i * 2 : (i + 1) * 2],
+                "attention_mask": inputs["attention_mask"][i * 2 : (i + 1) * 2],
+                # Add other inputs as needed
+            }
+            tasks.append(task_data)
+
+        return tasks
+
+    def training_step(self, model: nn.Module, inputs: Dict[str, torch.Tensor]) -> torch.Tensor:
+        """
+        Perform a training step with MAML's outer loop update
+        """
+        model.train()
+        inputs = self._prepare_inputs(inputs)
+
+        # Forward pass and compute loss
+        loss = self.compute_loss(model, inputs)
+
+        return loss.detach()
+
+'''
+
+
+'''
+class MAMLDPOTrainerGPT(DPOTrainer):
+    """
+    基于 DPOTrainer，添加 MAML 双重循环机制。
+    注意：此示例代码仅提供基本架构思路，根据实际任务和 DPOTrainer 内部实现细节可能需要修改。
+    """
+
+    def __init__(self, *args, inner_lr: float = 1e-3, inner_steps: int = 1, **kwargs):
+        """
+        Args:
+            inner_lr: 内循环的学习率
+            inner_steps: 内循环的梯度更新步数
+            *args, **kwargs: 传递给 DPOTrainer 的其他参数
+        """
+        super().__init__(*args, **kwargs)
+        self.inner_lr = inner_lr
+        self.inner_steps = inner_steps
+
+        # 假设训练采用的是 self.model 和 self.optimizer，
+        # 这里可以根据需要初始化更多内容，如损失函数
+        self.loss_fn = nn.CrossEntropyLoss()  # 示例损失函数，根据实际任务替换
+
+    def compute_loss(self, outputs, targets):
+        """
+        根据输出和目标计算损失
+        这里以交叉熵损失为示例，请根据具体任务修改计算过程。
+        """
+        return self.loss_fn(outputs, targets)
+
+    def meta_train_step(self, support_batch, query_batch):
+        """
+        执行一次 meta-training 步骤
+        Args:
+            support_batch: 支持集，通常包含 (input, target)
+            query_batch: 查询集，通常包含 (input, target)
+        """
+
+        # 保存当前模型参数（元参数）作为备份
+        meta_params = copy.deepcopy(self.model.state_dict())
+
+        # --- 内循环：在支持集上做几步梯度更新 ---
+        # 克隆一份模型供内循环使用，防止直接改动 self.model 参数（也可以直接修改 self.model 但后续必须还原）
+        # 注意：此处为了简单，直接对 self.model 参数做更新，要求后续将其还原！
+        # 如果模型较大、内循环步数多，建议构造专门的辅助模型，用于计算内循环更新后的梯度
+        for _ in range(self.inner_steps):
+            # 从支持集 batch 中获取数据
+            inputs_support, targets_support = support_batch["inputs"], support_batch["targets"]
+            outputs_support = self.model(inputs_support)
+            support_loss = self.compute_loss(outputs_support, targets_support)
+            # 计算梯度，要求创建梯度图以支持外层梯度传播
+            grads = torch.autograd.grad(support_loss, self.model.parameters(), create_graph=True)
+
+            # 用内循环学习率更新当前模型参数（这里以简单 SGD 风格更新）
+            with torch.no_grad():
+                for param, grad in zip(self.model.parameters(), grads):
+                    param.sub_(self.inner_lr * grad)
+
+        # --- 外循环：在查询集上计算损失，并进行反向传播 ---
+        inputs_query, targets_query = query_batch["inputs"], query_batch["targets"]
+        outputs_query = self.model(inputs_query)
+        query_loss = self.compute_loss(outputs_query, targets_query)
+
+        # 反向传播：query_loss 的梯度将会传回内循环中计算更新时的梯度图
+        query_loss.backward()
+
+        # 用原始模型参数（元参数）还原 self.model，确保参数更新是通过优化器进行
+        self.model.load_state_dict(meta_params)
+
+        # 最后一步：优化器更新元参数
+        self.optimizer.step()
+        self.optimizer.zero_grad()
+
+        return query_loss.item()
+
+    def train(self, train_dataloader, meta_iterations: int = 1000):
+        """
+        重写训练函数，采用 meta-training 框架对数据做迭代更新
+        这里假设 train_dataloader 内部每个 batch 已经划分好支持集与查询集（例如，通过字典包含 'support' 和 'query'）
+        """
+        self.model.train()
+        for iteration in range(meta_iterations):
+            # 从 dataloader 中获取一个 meta-batch，要求每个 batch 包含 support 与 query 两部分
+            try:
+                batch = next(iter(train_dataloader))
+            except StopIteration:
+                # 若 dataloader 用尽，则重新获取
+                train_dataloader = iter(train_dataloader)
+                batch = next(train_dataloader)
+
+            support_batch = batch["support"]
+            query_batch = batch["query"]
+
+            loss = self.meta_train_step(support_batch, query_batch)
+            if iteration % 10 == 0:
+                print(f"Iteration {iteration}, Query Loss: {loss:.4f}")
+'''

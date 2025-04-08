@@ -40,17 +40,20 @@ def run_maml_dpo(
     finetuning_args: "FinetuningArguments",
     callbacks: Optional[List["TrainerCallback"]] = None,
 ):
+    print("######## run_maml_dpo ########")
     # 加载tokenizer
     tokenizer_module = load_tokenizer(model_args)
     tokenizer = tokenizer_module["tokenizer"]
     # 获取模板并修复tokenizer
     template = get_template_and_fix_tokenizer(tokenizer, data_args)
     # 获取数据集
+    # TODO: 数据也得自己处理
     dataset_module = get_dataset(template, model_args, data_args, training_args, stage="rm", **tokenizer_module)
     # 加载模型
     model = load_model(tokenizer, model_args, finetuning_args, training_args.do_train)
 
     # 创建数据收集器
+    # TODO: 数据也得自己处理
     data_collator = PairwiseDataCollatorWithPadding(
         template=template,
         model=model,
@@ -60,13 +63,23 @@ def run_maml_dpo(
     )
 
     # 创建参考模型 ref_model
+    """
+    src/llamafactory/hparams/finetuning_args.py # 460 line
+    self.use_ref_model = self.stage == "dpo" and self.pref_loss not in ["orpo", "simpo"]
+    """
     if finetuning_args.use_ref_model:
-        if finetuning_args.ref_model is None and (not training_args.do_train):  # 使用相同的模型作为参考模型
-            ref_model = model
+        if finetuning_args.ref_model is None and (not training_args.do_train):
+            # 没设置 ref_model, 且不是训练阶段
+            ref_model = model  # 使用相同的模型作为参考模型
         else:
+            """
+            因为 finetuning_args.finetuning_type == "lora", 所以 ref_model = None
+            """
             ref_model = create_ref_model(model_args, finetuning_args)
     else:
         ref_model = None
+
+    print(f"### {ref_model=} ###")  # ref_model = None
 
     # 设置训练参数 remove_unused_columns, 对于多模态和成对数据集很重要
     training_args.remove_unused_columns = False  # important for multimodal and pairwise dataset
@@ -85,7 +98,7 @@ def run_maml_dpo(
 
     # Training 训练过程
     if training_args.do_train:
-        # 训练模型
+        # 训练模型 # TODO 需要修改 train 函数
         train_result = trainer.train(resume_from_checkpoint=training_args.resume_from_checkpoint)
         # 保存模型
         trainer.save_model()
