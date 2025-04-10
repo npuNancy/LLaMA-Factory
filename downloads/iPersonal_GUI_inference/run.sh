@@ -42,5 +42,13 @@
 #     --per_device_eval_batch_size 1 \
 #     --predict_with_generate
 
+## 20250410
+API_PORT=8002 CUDA_VISIBLE_DEVICES=0 lmf api \
+    --model_name_or_path /data4/yanxiaokai/Models/modelscope/hub/Qwen/Qwen2.5-VL-7B-Instruct \
+    --adapter_name_or_path saves/qwen25vl_7B_stage3/lora/sft_100user_20way_event_en/checkpoint-36500 \
+    --template qwen2_vl \
+    --finetuning_type lora \
+    --infer_backend vllm \
+    --vllm_gpu_util 0.3
 
 echo "完成"
