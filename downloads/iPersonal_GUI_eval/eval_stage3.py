@@ -89,5 +89,6 @@ if __name__ == "__main__":
     filepath = "saves/qwen25vl_7B_stage3/lora/predict_100user_20way_event_zh/generated_predictions.jsonl"  # Acc: 45.00% SimAcc: 46.90% AvgAcc: 31.48%
     filepath = "saves/qwen25vl_7B_stage3/lora/predict_100user_20way_event_zh2en/generated_predictions.jsonl"  # Acc: 39.10%, SimAcc: 39.10%, AvgAcc: 26.72%
     filepath = "saves/qwen25vl_7B_stage3/lora/predict_100user_20way_event(cp_15000)/generated_predictions.jsonl"  # Acc: 35.80%, SimAcc: 35.80%, AvgAcc: 24.39%
-    filepath = "saves/qwen25vl_7B_stage3/lora/predict_100user_20way_event_en/generated_predictions.jsonl"  # Acc: 42.20%, SimAcc: 42.20%, AvgAcc: 33.83%
+    filepath = "saves/qwen25vl_7B_stage3/lora/predict_100user_20way_event_en_cp36500/generated_predictions.jsonl"  # Acc: 42.20%, SimAcc: 42.20%, AvgAcc: 33.83%
+    filepath = "saves/qwen25vl_7B_stage3/lora/predict_100user_20way_event_en_50to1/generated_predictions.jsonl"  # Acc: 34.61%, SimAcc: , AvgAcc: 30.72%
     main(filepath=filepath)
