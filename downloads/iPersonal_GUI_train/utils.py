@@ -51,7 +51,5 @@ def plot_train_eval(filepath):
 
 
 if __name__ == "__main__":
-    filepath = (
-        "/data4/yanxiaokai/LLaMA-Factory/saves/qwen25vl_7B_stage3/lora/sft_100user_20way_event_zh2en/trainer_log.jsonl"
-    )
+    filepath = "saves/qwen25vl_7B_stage3/lora/sft_100user_20way_event_en/trainer_log.jsonl"
     plot_train_eval(filepath)
