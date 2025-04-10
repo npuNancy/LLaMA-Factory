@@ -74,6 +74,18 @@ def create_chat_completion(
         raise e
 
 
+def gpt_4o():
+    api_key = "sk-rxxtMWBqJgFsJLQbDVCl5kSoEXa68OBYJSxNpWMm696yfSbx"
+    base_url = "https://xiaoai.plus/v1"
+    messages = [
+        {"role": "system", "content": "You are a helpful assistant."},
+        {"role": "user", "content": "Tell me a joke."},
+        {"role": "user", "content": "日本的首都是哪？"},
+    ]
+    res = create_chat_completion(api_key, base_url, "gpt-4o", messages)
+    print(res)
+
+
 @dataclass
 class AsyncLLMAPI:
     """
@@ -203,19 +215,9 @@ class AsyncLLMAPI:
         return result_json
 
 
-def gpt_4o():
-    api_key = "sk-rxxtMWBqJgFsJLQbDVCl5kSoEXa68OBYJSxNpWMm696yfSbx"
-    base_url = "https://xiaoai.plus/v1"
-    messages = [
-        {"role": "system", "content": "You are a helpful assistant."},
-        {"role": "user", "content": "Tell me a joke."},
-        {"role": "user", "content": "日本的首都是哪？"},
-    ]
-    res = create_chat_completion(api_key, base_url, "gpt-4o", messages)
-    print(res)
-
-
-def main(dataset, output_dir, model="gpt-3.5-turbo", chunk_size=10):
+def main(
+    dataset, output_dir, model="gpt-3.5-turbo", base_url="https://xiaoai.plus/v1", chunk_size=10, num_per_second=6
+):
 
     with open(dataset, "r") as f:
         json_data = json.load(f)
@@ -232,14 +234,15 @@ def main(dataset, output_dir, model="gpt-3.5-turbo", chunk_size=10):
     llms = [
         AsyncLLMAPI(
             model=model,
-            base_url="https://xiaoai.plus/v1",
+            base_url=base_url,
             api_key="sk-rxxtMWBqJgFsJLQbDVCl5kSoEXa68OBYJSxNpWMm696yfSbx",
+            num_per_second=num_per_second,
             uid=1,
         )
     ]
 
     result_json = AsyncLLMAPI.async_run(
-        llms, messages_list, keyword="tmp", output_dir=output_dir, chunk_size=chunk_size
+        llms, messages_list, keyword="36500", output_dir=output_dir, chunk_size=chunk_size
     )
 
     result = []
@@ -261,11 +264,12 @@ def main(dataset, output_dir, model="gpt-3.5-turbo", chunk_size=10):
 
 if __name__ == "__main__":
 
-    dir = "/data4/yanxiaokai/LLaMA-Factory/data/iPersonal-GUI/stage3/honor_datasets/sft_100_20way/test_20way_read.json"
-    dir = "/data4/yanxiaokai/LLaMA-Factory/data/iPersonal-GUI/stage3/honor_datasets/sft_100_20way/test_20way.json"
-    dir = (
-        "/data4/yanxiaokai/LLaMA-Factory/data/iPersonal-GUI/stage3/honor_datasets/sft_100_20way/test_20way_no_null.json"
-    )
+    dir = "/data4/yanxiaokai/data/iPersonal-GUI/stage3/honor_datasets/sft_100_20way/test_20way_read.json"
+    dir = "/data4/yanxiaokai/data/iPersonal-GUI/stage3/honor_datasets/sft_100_20way/test_20way.json"
+    dir = "/data4/yanxiaokai/data/iPersonal-GUI/stage3/honor_datasets/sft_100_20way/test_20way_no_null.json"
+    dir = "/data4/yanxiaokai/data/iPersonal-GUI/stage3/honor_datasets/sft_100user_20way_event/test_20way.json"
+
+    base_url = "http://127.0.0.1:8002/v1"
     model = "gpt-4o"
-    output_dir = f"saves/qwen25vl_7B_stage3/lora/predict_20way_sft_{model}"
+    output_dir = f"saves/qwen25vl_7B_stage3/lora/predict_100user_20way_event_en_cp72500"
     main(dir, output_dir, model=model, chunk_size=100)
