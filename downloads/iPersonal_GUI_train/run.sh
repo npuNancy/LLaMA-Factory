@@ -28,7 +28,7 @@
 
 ## 20250410
 ## 重新训练 iPersonal_GUI_stage3_sft_100user_20way_event_train
-FORCE_TORCHRUN=0 CUDA_VISIBLE_DEVICES=2 lmf train \
+FORCE_TORCHRUN=0 CUDA_VISIBLE_DEVICES=0 lmf train \
     --model_name_or_path /data4/yanxiaokai/Models/modelscope/hub/Qwen/Qwen2.5-VL-7B-Instruct \
     --output_dir saves/qwen25vl_7B_stage3/lora/sft_100user_20way_event_en_0410 \
     --dataset iPersonal_GUI_stage3_sft_100user_20way_event_train \
