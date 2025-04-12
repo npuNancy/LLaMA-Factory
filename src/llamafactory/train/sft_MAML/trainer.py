@@ -672,6 +672,8 @@ class MAMLSeq2SeqTrainer(CustomSeq2SeqTrainer):
             """
             for maml_task in range(self.maml_num_tasks):
 
+                # TODO 这里应该复制一个 model 和 optimizer, 用来完成这个Task的训练
+
                 ## 数据加载器
                 self.train_dataset = self.maml_train_dataset_list[maml_task]  # 第maml_task个任务的数据集
                 train_dataloader = self.get_train_dataloader()  # 这个函数会读取 self.train_dataset.
@@ -779,7 +781,8 @@ class MAMLSeq2SeqTrainer(CustomSeq2SeqTrainer):
                         )
                         with context():
                             """
-                            training_step() 包含模型的正向传播和反向更新
+                            training_step() 包含模型的正向传播 和 反向更新, 但没有更新参数
+                            这一步应该是用 support_x 和 support_y 来训练该Task的模型
                             """
                             tr_loss_step = self.training_step(model, inputs, num_items_in_batch)
 
@@ -788,6 +791,7 @@ class MAMLSeq2SeqTrainer(CustomSeq2SeqTrainer):
                             and not is_torch_xla_available()
                             and (torch.isnan(tr_loss_step) or torch.isinf(tr_loss_step))
                         ):
+                            # 如果损失为nan或inf，只需将之前记录的损失的平均值相加
                             # if loss is nan or inf simply add the average of previous logged losses
                             tr_loss = tr_loss + tr_loss / (1 + self.state.global_step - self._globalstep_last_logged)
                         else:
@@ -801,14 +805,17 @@ class MAMLSeq2SeqTrainer(CustomSeq2SeqTrainer):
 
                         if do_sync_step:
                             # Since we perform prefetching, we need to manually set sync_gradients to True
+                            # 由于我们执行预取，因此需要手动将sync_gradients设置为True
                             self.accelerator.gradient_state._set_sync_gradients(True)
 
                             # Gradient clipping
+                            # 梯度裁剪
                             if args.max_grad_norm is not None and args.max_grad_norm > 0:
                                 if is_sagemaker_mp_enabled() and args.fp16:
                                     _grad_norm = self.optimizer.clip_master_grads(args.max_grad_norm)
                                 elif self.use_apex:
                                     # Revert to normal clipping otherwise, handling Apex or full precision
+                                    # 否则，处理Apex或全精度，恢复到正常裁剪
                                     _grad_norm = nn.utils.clip_grad_norm_(
                                         amp.master_params(self.optimizer),
                                         args.max_grad_norm,
@@ -825,23 +832,28 @@ class MAMLSeq2SeqTrainer(CustomSeq2SeqTrainer):
                                 ):
                                     grad_norm = model.get_global_grad_norm()
                                     # In some cases the grad norm may not return a float
+                                    # 在这种情况下，梯度范数可能不会返回一个浮点数
                                     if hasattr(grad_norm, "item"):
                                         grad_norm = grad_norm.item()
                                 else:
                                     grad_norm = _grad_norm
 
+                            # 回调函数
                             self.control = self.callback_handler.on_pre_optimizer_step(args, self.state, self.control)
 
-                            self.optimizer.step()
+                            # 正常应该调用optimizer.zero_grad()，防止梯度累加干扰当前批次的计算
+                            # 但梯度累加也可用于模拟大batch训练
+                            self.optimizer.step()  # 更新模型参数
 
                             self.control = self.callback_handler.on_optimizer_step(args, self.state, self.control)
 
                             if not self.accelerator.optimizer_step_was_skipped:
                                 # Delay optimizer scheduling until metrics are generated
+                                # 延迟优化器调度，直到生成指标
                                 if not isinstance(self.lr_scheduler, torch.optim.lr_scheduler.ReduceLROnPlateau):
                                     self.lr_scheduler.step()
 
-                            model.zero_grad()
+                            model.zero_grad()  # 清空梯度
                             self.state.global_step += 1
                             self.state.epoch = epoch + (step + 1 + steps_skipped) / steps_in_epoch
                             self.control = self.callback_handler.on_step_end(args, self.state, self.control)
@@ -859,6 +871,7 @@ class MAMLSeq2SeqTrainer(CustomSeq2SeqTrainer):
                                 xm.mark_step()
                             break
                     # We also need to break out of the nested loop
+                    # 我们也需要从嵌套循环中跳出
                     if self.control.should_epoch_stop or self.control.should_training_stop:
                         if is_torch_xla_available():
                             xm.mark_step()
@@ -869,7 +882,16 @@ class MAMLSeq2SeqTrainer(CustomSeq2SeqTrainer):
                         f" {self.state.global_step}! This is expected if you're using an IterableDataset and set"
                         f" num_steps ({max_steps}) higher than the number of available samples."
                     )
+                    # 输出中文
+                    logger.warning(
+                        f"似乎你的epoch_iterator中没有单个样本，在步骤{self.state.global_step}处停止训练！如果你使用的是IterableDataset，并且将num_steps ({max_steps})设置得高于可用样本的数量，这是预期的。"
+                    )
                     self.control.should_training_stop = True
+
+                """
+                这里完成了当前task的训练
+                用当前task的 查询集 计算原始模型的loss, 并保存（不在这里做反向传播）
+                """
 
                 self.control = self.callback_handler.on_epoch_end(args, self.state, self.control)
                 self._maybe_log_save_evaluate(tr_loss, grad_norm, model, trial, epoch, ignore_keys_for_eval, start_time)
@@ -891,8 +913,10 @@ class MAMLSeq2SeqTrainer(CustomSeq2SeqTrainer):
             delattr(self, "_past")
 
         logger.info("\n\nTraining completed. Do not forget to share your model on huggingface.co/models =)\n\n")
+        logger.info("\n\n训练完成。不要忘记在huggingface.co/models上分享你的模型 =)\n\n")
         if args.load_best_model_at_end and self.state.best_model_checkpoint is not None:
             # Wait for everyone to get here so we are sure the model has been saved by process 0.
+            # 等待每个人到达这里，以确保进程0已经保存了模型。
             if is_torch_xla_available():
                 xm.rendezvous("load_best_model_at_end")
             elif args.parallel_mode == ParallelMode.DISTRIBUTED:
@@ -903,6 +927,7 @@ class MAMLSeq2SeqTrainer(CustomSeq2SeqTrainer):
             self._load_best_model()
 
         # add remaining tr_loss
+        # 添加剩余的 tr_loss
         self._total_loss_scalar += tr_loss.item()
         effective_global_step = max(self.state.global_step, 0.001)  # Avoid ZeroDivisionError
         train_loss = self._total_loss_scalar / effective_global_step
@@ -951,8 +976,11 @@ class MAMLSeq2SeqTrainer(CustomSeq2SeqTrainer):
     ) -> torch.Tensor:
         """
         Perform a training step on a batch of inputs.
+        对一批输入执行训练步骤。正常传播+反向传播, 但没有更新参数
+
 
         Subclass and override to inject custom behavior.
+        子类和重写以注入自定义行为。
 
         Args:
             model (`nn.Module`):
@@ -962,20 +990,26 @@ class MAMLSeq2SeqTrainer(CustomSeq2SeqTrainer):
 
                 The dictionary will be unpacked before being fed to the model. Most models expect the targets under the
                 argument `labels`. Check your model's documentation for all accepted arguments.
+                字典在放入模型之前将被解包。大多数模型都期望在参数`labels`下找到targets。
+                检查模型文档中所有可接受的参数。
 
         Return:
             `torch.Tensor`: The tensor with training loss on this batch.
         """
-        model.train()
+        model.train()  # 将模型设置为训练模式
         if hasattr(self.optimizer, "train") and callable(self.optimizer.train):
-            self.optimizer.train()
+            self.optimizer.train()  # 将优化器设置为训练模式
 
         inputs = self._prepare_inputs(inputs)
         if is_sagemaker_mp_enabled():
+            # 从 smp_options 变量中获取特定于 sagemaker 的 mp 参数。
+            print("执行到了 MAMLSeq2SeqTrainer.training_step 的 is_sagemaker_mp_enabled() 中的 if 语句")
             loss_mb = smp_forward_backward(model, inputs, self.args.gradient_accumulation_steps)
             return loss_mb.reduce_mean().detach().to(self.args.device)
 
+        # ​​上下文管理器​​，用于​​在计算损失时自动管理混合精度训练、梯度累积、分布式训练等环境配置​​。
         with self.compute_loss_context_manager():
+            # 正向传播过程
             loss = self.compute_loss(model, inputs, num_items_in_batch=num_items_in_batch)
 
         del inputs
@@ -1002,10 +1036,12 @@ class MAMLSeq2SeqTrainer(CustomSeq2SeqTrainer):
         if self.args.optim in [OptimizerNames.LOMO, OptimizerNames.ADALOMO]:
             kwargs["learning_rate"] = self._get_learning_rate()
 
+        # 多GPU训练
         if self.args.n_gpu > 1:
             loss = loss.mean()  # mean() to average on multi-gpu parallel training
 
         if self.use_apex:
+            # 混合精度训练, 用 自动精度 包裹起来
             with amp.scale_loss(loss, self.optimizer) as scaled_loss:
                 scaled_loss.backward()
         else:
@@ -1018,7 +1054,7 @@ class MAMLSeq2SeqTrainer(CustomSeq2SeqTrainer):
             if self.accelerator.distributed_type == DistributedType.DEEPSPEED:
                 kwargs["scale_wrt_gas"] = False
 
-            self.accelerator.backward(loss, **kwargs)
+            self.accelerator.backward(loss, **kwargs)  # 反向传播
 
             return loss.detach()
 
