@@ -1,4 +1,3 @@
-
 # coding=utf-8
 # Copyright 2020-present the HuggingFace Inc. team.
 #
@@ -2476,6 +2475,9 @@ class Trainer:
                         else contextlib.nullcontext
                     )
                     with context():
+                        """
+                        training_step() 包含模型的正向传播和反向更新
+                        """
                         tr_loss_step = self.training_step(model, inputs, num_items_in_batch)
 
                     if (
