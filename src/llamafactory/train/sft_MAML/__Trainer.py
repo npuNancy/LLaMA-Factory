@@ -3559,8 +3559,11 @@ class Trainer:
     ) -> torch.Tensor:
         """
         Perform a training step on a batch of inputs.
+        对一批输入执行训练步骤。正常传播+反向传播, 但没有更新参数
+
 
         Subclass and override to inject custom behavior.
+        子类和重写以注入自定义行为。
 
         Args:
             model (`nn.Module`):
@@ -3570,20 +3573,26 @@ class Trainer:
 
                 The dictionary will be unpacked before being fed to the model. Most models expect the targets under the
                 argument `labels`. Check your model's documentation for all accepted arguments.
+                字典在放入模型之前将被解包。大多数模型都期望在参数`labels`下找到targets。
+                检查模型文档中所有可接受的参数。
 
         Return:
             `torch.Tensor`: The tensor with training loss on this batch.
         """
-        model.train()
+        model.train()  # 将模型设置为训练模式
         if hasattr(self.optimizer, "train") and callable(self.optimizer.train):
-            self.optimizer.train()
+            self.optimizer.train()  # 将优化器设置为训练模式
 
         inputs = self._prepare_inputs(inputs)
         if is_sagemaker_mp_enabled():
+            # 从 smp_options 变量中获取特定于 sagemaker 的 mp 参数。
+            print("执行到了 MAMLSeq2SeqTrainer.training_step 的 is_sagemaker_mp_enabled() 中的 if 语句")
             loss_mb = smp_forward_backward(model, inputs, self.args.gradient_accumulation_steps)
             return loss_mb.reduce_mean().detach().to(self.args.device)
 
+        # ​上下文管理器​​，用于​​在计算损失时自动管理混合精度训练、梯度累积、分布式训练等环境配置​​。
         with self.compute_loss_context_manager():
+            # 正向传播过程
             loss = self.compute_loss(model, inputs, num_items_in_batch=num_items_in_batch)
 
         del inputs
@@ -3610,10 +3619,12 @@ class Trainer:
         if self.args.optim in [OptimizerNames.LOMO, OptimizerNames.ADALOMO]:
             kwargs["learning_rate"] = self._get_learning_rate()
 
+        # 多GPU训练
         if self.args.n_gpu > 1:
             loss = loss.mean()  # mean() to average on multi-gpu parallel training
 
         if self.use_apex:
+            # 混合精度训练, 用 自动精度 包裹起来
             with amp.scale_loss(loss, self.optimizer) as scaled_loss:
                 scaled_loss.backward()
         else:
@@ -3626,7 +3637,7 @@ class Trainer:
             if self.accelerator.distributed_type == DistributedType.DEEPSPEED:
                 kwargs["scale_wrt_gas"] = False
 
-            self.accelerator.backward(loss, **kwargs)
+            self.accelerator.backward(loss, **kwargs)  # 反向传播
 
             return loss.detach()
 
@@ -3645,7 +3656,7 @@ class Trainer:
             if num_items_in_batch is not None:
                 loss_kwargs["num_items_in_batch"] = num_items_in_batch
             inputs = {**inputs, **loss_kwargs}
-        outputs = model(**inputs)
+        outputs = model(**inputs)  # 正向传播(推理)
         # Save past state if it exists
         # TODO: this needs to be fixed and made cleaner later.
         if self.args.past_index >= 0:
@@ -3658,6 +3669,7 @@ class Trainer:
             else:
                 model_name = unwrapped_model._get_name()
             # User-defined compute_loss function
+            # 用户定义的计算损失函数
             if self.compute_loss_func is not None:
                 loss = self.compute_loss_func(outputs, labels, num_items_in_batch=num_items_in_batch)
             elif model_name in MODEL_FOR_CAUSAL_LM_MAPPING_NAMES.values():
