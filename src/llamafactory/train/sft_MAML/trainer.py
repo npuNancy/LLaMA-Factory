@@ -15,8 +15,9 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-import json
 import os
+import json
+import time
 from types import MethodType
 from typing import TYPE_CHECKING, Any, Dict, List, Optional, Tuple, Union
 
@@ -39,8 +40,153 @@ if TYPE_CHECKING:
 
     from ...hparams import FinetuningArguments
 
+if True:
+    import warnings
+
+    import huggingface_hub.utils as hf_hub_utils
+    from huggingface_hub import ModelCard, create_repo, upload_folder
+
+    if TYPE_CHECKING:
+        import optuna
+
+    from transformers.integrations import get_reporting_integration_callbacks
+    from transformers.configuration_utils import PretrainedConfig
+    from transformers.data.data_collator import DataCollator, DataCollatorWithPadding, default_data_collator
+    from transformers.debug_utils import DebugOption, DebugUnderflowOverflow
+    from transformers.feature_extraction_sequence_utils import SequenceFeatureExtractor
+    from transformers.feature_extraction_utils import FeatureExtractionMixin
+    from transformers.hyperparameter_search import ALL_HYPERPARAMETER_SEARCH_BACKENDS, default_hp_search_backend
+    from transformers.image_processing_utils import BaseImageProcessor
+    from transformers.integrations.deepspeed import deepspeed_init, deepspeed_load_checkpoint, is_deepspeed_available
+    from transformers.integrations.tpu import tpu_spmd_dataloader
+    from transformers.modelcard import TrainingSummary
+    from transformers.modeling_utils import PreTrainedModel, load_sharded_checkpoint, unwrap_model
+    from transformers.models.auto.modeling_auto import MODEL_FOR_CAUSAL_LM_MAPPING_NAMES, MODEL_MAPPING_NAMES
+    from transformers.optimization import Adafactor, get_scheduler
+    from transformers.processing_utils import ProcessorMixin
+    from transformers.pytorch_utils import ALL_LAYERNORM_LAYERS, is_torch_greater_or_equal_than_2_3
+    from transformers.tokenization_utils_base import PreTrainedTokenizerBase
+    from transformers.trainer_callback import (
+        CallbackHandler,
+        DefaultFlowCallback,
+        ExportableState,
+        PrinterCallback,
+        ProgressCallback,
+        TrainerCallback,
+        TrainerControl,
+        TrainerState,
+    )
+    from transformers.trainer_pt_utils import (
+        DistributedTensorGatherer,
+        EvalLoopContainer,
+        IterableDatasetShard,
+        LabelSmoother,
+        LayerWiseDummyOptimizer,
+        LengthGroupedSampler,
+        SequentialDistributedSampler,
+        distributed_broadcast_scalars,
+        distributed_concat,
+        find_batch_size,
+        get_model_param_count,
+        get_module_class_from_name,
+        get_parameter_names,
+        nested_concat,
+        nested_detach,
+        nested_numpify,
+        nested_xla_mesh_reduce,
+        reissue_pt_warnings,
+        remove_dummy_checkpoint,
+        set_rng_state_for_device,
+    )
+    from transformers.trainer_utils import (
+        PREFIX_CHECKPOINT_DIR,
+        BestRun,
+        EvalLoopOutput,
+        EvalPrediction,
+        HPSearchBackend,
+        HubStrategy,
+        PredictionOutput,
+        RemoveColumnsCollator,
+        SaveStrategy,
+        TrainerMemoryTracker,
+        TrainOutput,
+        check_target_module_exists,
+        default_compute_objective,
+        denumpify_detensorize,
+        enable_full_determinism,
+        find_executable_batch_size,
+        get_last_checkpoint,
+        has_length,
+        neftune_post_forward_hook,
+        number_of_arguments,
+        seed_worker,
+        set_seed,
+        speed_metrics,
+    )
+    from transformers.training_args import OptimizerNames, ParallelMode, TrainingArguments
+    from transformers.utils import (
+        ADAPTER_CONFIG_NAME,
+        ADAPTER_SAFE_WEIGHTS_NAME,
+        ADAPTER_WEIGHTS_NAME,
+        CONFIG_NAME,
+        SAFE_WEIGHTS_INDEX_NAME,
+        SAFE_WEIGHTS_NAME,
+        WEIGHTS_INDEX_NAME,
+        WEIGHTS_NAME,
+        XLA_FSDPV2_MIN_VERSION,
+        PushInProgress,
+        PushToHubMixin,
+        can_return_loss,
+        find_labels,
+        is_accelerate_available,
+        is_apex_available,
+        is_bitsandbytes_available,
+        is_datasets_available,
+        is_galore_torch_available,
+        is_grokadamw_available,
+        is_in_notebook,
+        is_ipex_available,
+        is_liger_kernel_available,
+        is_lomo_available,
+        is_peft_available,
+        is_safetensors_available,
+        is_sagemaker_dp_enabled,
+        is_sagemaker_mp_enabled,
+        is_schedulefree_available,
+        is_torch_compile_available,
+        is_torch_mlu_available,
+        is_torch_mps_available,
+        is_torch_musa_available,
+        is_torch_neuroncore_available,
+        is_torch_npu_available,
+        is_torch_xla_available,
+        is_torch_xpu_available,
+        is_torchao_available,
+        logging,
+        strtobool,
+    )
+    from transformers.utils.deprecation import deprecate_kwarg
+    from transformers.utils.quantization_config import QuantizationMethod
+
+
+if True:
+    from transformers.trainer import *
+    from transformers.trainer import _is_peft_model
+
+
+if is_accelerate_available():
+    from accelerate import Accelerator, skip_first_batches
 
 logger = logging.get_logger(__name__)
+
+# Name of the files used for checkpointing
+TRAINING_ARGS_NAME = "training_args.bin"
+TRAINER_STATE_NAME = "trainer_state.json"
+OPTIMIZER_NAME = "optimizer.pt"
+OPTIMIZER_NAME_BIN = "optimizer.bin"
+SCHEDULER_NAME = "scheduler.pt"
+SCALER_NAME = "scaler.pt"
+FSDP_MODEL_NAME = "pytorch_model_fsdp"
 
 
 class CustomSeq2SeqTrainer(Seq2SeqTrainer):
