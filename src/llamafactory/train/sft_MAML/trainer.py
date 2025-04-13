@@ -315,8 +315,9 @@ class CustomSeq2SeqTrainer(Seq2SeqTrainer):
 class MAMLSeq2SeqTrainer(CustomSeq2SeqTrainer):
     """
     Description:
-        基于 CustomSeq2SeqTrainer 修改的元学习Trainer
+        基于 CustomSeq2SeqTrainer 修改的元学习 Trainer
     Args:
+        ------Trainer的参数-------
         model: Union[PreTrainedModel, nn.Module] = None,
         args: TrainingArguments = None,
         data_collator: Optional[DataCollator] = None,
@@ -334,19 +335,29 @@ class MAMLSeq2SeqTrainer(CustomSeq2SeqTrainer):
         preprocess_logits_for_metrics: Optional[Callable[[torch.Tensor, torch.Tensor], torch.Tensor]] = None,
     """
 
-    def __init__(self, maml_support_dataset_list, maml_query_dataset_list, maml_inner_epochs=5, *args, **kwargs):
+    def __init__(
+        self,
+        num_shots: int,
+        num_querys: int,
+        maml_training_dataset_list: List[Union[Dataset, IterableDataset, "datasets.Dataset"]],
+        *args,
+        **kwargs,
+    ):
         """
         Args:
-            maml_support_dataset_list: List[train_dataset]
+            num_shots: k-shots
+            num_querys: q-querys
+            maml_training_dataset_list: List[Union[Dataset, IterableDataset, "datasets.Dataset"]]
         """
         super().__init__(*args, **kwargs)
-        assert len(maml_support_dataset_list) == len(maml_query_dataset_list), "支持集和查询集数量不一致"
-        self.maml_support_dataset_list = maml_support_dataset_list  # MAML 训练的 支持集列表
-        self.maml_query_dataset_list = maml_query_dataset_list  # MAML 训练的 查询集列表
-        self.maml_num_tasks = len(maml_support_dataset_list)  # MAML 训练任务的数量
+
+        self.num_shots = num_shots  # k-shots
+        self.num_querys = num_querys  # q-querys
+        self.maml_training_dataset_list = maml_training_dataset_list
+        self.maml_num_tasks = len(maml_training_dataset_list)  # MAML 训练任务的数量
 
         # 这个无法使用
-        self.maml_inner_epochs = maml_inner_epochs  # MAML 每个任务的训练轮次
+        self.maml_inner_epochs = None  # MAML 每个任务的训练轮次
 
     @override
     def _inner_training_loop(
@@ -585,7 +596,8 @@ class MAMLSeq2SeqTrainer(CustomSeq2SeqTrainer):
                 meta_optimizer = copy.deepcopy(self.optimizer.state_dict())
 
                 ## 数据加载器
-                self.train_dataset = self.maml_support_dataset_list[maml_task]  # 第maml_task个任务的 支持集
+                self.support_dataset, self.query_dataset = self.process_MAML_dataset(self.maml_training_dataset_list[maml_task])
+                self.train_dataset = self.support_dataset  # 第maml_task个任务的 支持集
                 train_dataloader = self.get_train_dataloader()  # 这个函数会读取 self.train_dataset
                 if self.is_fsdp_xla_v2_enabled:
                     train_dataloader = tpu_spmd_dataloader(train_dataloader)
@@ -792,14 +804,10 @@ class MAMLSeq2SeqTrainer(CustomSeq2SeqTrainer):
                     )
                     self.control.should_training_stop = True
 
-                """
-                这里完成了当前task的训练
-                用当前task的 查询集 计算 Model_i 的loss, 并保存（不在这里做反向传播）
-                """
+                ################# END 这里完成了当前task的训练 END ##########
 
-                # TODO 这里可以优化: 在init的时候，将所有task的查询集都加载到内存中，而不是每次都加载
-                # 加载查询集
-                query_dataset = self.maml_query_dataset_list[maml_task]  # 第maml_task个任务的 查询集
+                ## 用当前task的 查询集 计算 Model_i 的loss, 并保存（不在这里做反向传播）
+                query_dataset = self.query_dataset  # 查询集
                 query_dataloader = self.get_test_dataloader(query_dataset)  # 获取查询集的 dataloader
                 if self.is_fsdp_xla_v2_enabled:
                     query_dataloader = tpu_spmd_dataloader(query_dataloader)
@@ -1140,6 +1148,57 @@ class MAMLSeq2SeqTrainer(CustomSeq2SeqTrainer):
             result_loss = all_losses.mean().item()
 
         return result_loss
+
+    def process_MAML_dataset(
+        self,
+        train_dataset: Optional[Union[Dataset, IterableDataset, "datasets.Dataset"]],
+    ):
+        """
+        处理训练数据集，构造MAML的支持集和查询集。
+
+        Args:
+            train_dataset: 训练数据集，可以是 Dataset、IterableDataset 或 datasets.Dataset。
+            num_shots: 支持集的样本数量。
+            num_querys: 查询集的样本数量。
+
+        Returns:
+            support_dataset: 支持集数据集。 Optional[Union[Dataset, IterableDataset, "datasets.Dataset"]]
+            query_dataset: 查询集数据集。 Optional[Union[Dataset, IterableDataset, "datasets.Dataset"]]
+        """
+        num_shots = self.num_shots
+        num_querys = self.num_querys
+        if train_dataset is None:
+            print("错误: train_dataset is None! Exit!")
+            exit()
+
+        # 将数据集转换为列表格式以便处理
+        if isinstance(train_dataset, (Dataset, IterableDataset, datasets.Dataset)):
+            dataset_list = train_dataset.to_list()
+        else:
+            dataset_list = list(train_dataset)
+
+        # 检查数据集是否为空
+        if not dataset_list:
+            print("错误: 数据集是否为空")
+            exit()
+
+        # 确保样本数量不超过数据集大小
+        total_samples = len(dataset_list)
+        if num_shots + num_querys > total_samples:
+            print("错误: num_shots + num_querys > total_samples")
+            exit()
+
+        # 随机选择支持集和查询集
+        random.shuffle(dataset_list)
+        samples = random.sample(dataset_list, num_shots + num_querys)
+        support_samples = samples[:num_shots]
+        query_samples = samples[num_shots:]
+
+        # 构造支持集和查询集
+        support_dataset = Dataset.from_dict({k: [d[k] for d in support_samples] for k in support_samples[0]})
+        query_dataset = Dataset.from_dict({k: [d[k] for d in query_samples] for k in query_samples[0]})
+
+        return support_dataset, query_dataset
 
 
 if __name__ == "__main__":

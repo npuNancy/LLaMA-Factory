@@ -177,9 +177,10 @@ def run_sft(
 
     # TODO: maml_support_dataset_list, maml_query_dataset_list
     trainer = MAMLSeq2SeqTrainer(
+        num_shots=10,
+        num_querys=10,
+        maml_training_dataset_list=maml_training_dataset_list,
         model=model,
-        maml_support_dataset_list="",
-        maml_query_dataset_list="",
         args=training_args,
         finetuning_args=finetuning_args,
         data_collator=data_collator,
