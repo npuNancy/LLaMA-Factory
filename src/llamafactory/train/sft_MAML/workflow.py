@@ -15,7 +15,8 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from typing import TYPE_CHECKING, List, Optional
+import copy
+from typing import TYPE_CHECKING, List, Dict, Literal, Optional, Sequence, Union
 
 from ...data import SFTDataCollatorWith4DAttentionMask, get_dataset, get_template_and_fix_tokenizer
 from ...extras.constants import IGNORE_INDEX
@@ -27,14 +28,68 @@ from ..trainer_utils import create_modelcard_and_push
 from .metric import ComputeAccuracy, ComputeSimilarity, eval_logit_processor
 from .trainer import CustomSeq2SeqTrainer, MAMLSeq2SeqTrainer
 
-
 if TYPE_CHECKING:
     from transformers import Seq2SeqTrainingArguments, TrainerCallback
+    from transformers import PreTrainedTokenizer, ProcessorMixin
+    import datasets
+    from datasets import Dataset, IterableDataset
 
     from ...hparams import DataArguments, FinetuningArguments, GeneratingArguments, ModelArguments
 
+    from ...data.template import Template
+    from ...data.data_utils import DatasetModule
 
 logger = get_logger(__name__)
+
+
+def get_maml_dataset_list(
+    template: "Template",
+    model_args: "ModelArguments",
+    data_args: "DataArguments",
+    training_args: "Seq2SeqTrainingArguments",
+    stage: Literal["pt", "sft", "rm", "ppo", "kto"],
+    tokenizer: "PreTrainedTokenizer",
+    processor: Optional["ProcessorMixin"] = None,
+):
+    """
+    Description:
+        获取用于元学习的训练集（后续可以从中抽取支持集和查询集）
+    Returns:
+        maml_training_dataset_list: List[Union[Dataset, IterableDataset, "datasets.Dataset"]]
+                                    用于训练的数据集, 包含不同Task(User)的数据集. 后续可以从中抽取支持集和查询集
+        maml_testing_dataset_list: List[Union[Dataset, IterableDataset, "datasets.Dataset"]]
+                                    用于测试的数据集, 包含不同Task(User)的数据集. 后续可以从中抽取测试集
+    """
+    maml_training_dataset_list = []
+    maml_testing_dataset_list = []
+
+    # 拷贝一份 data_args
+    data_args_copy = copy.deepcopy(data_args)
+    for dataset_name in list(data_args.dataset):
+        """
+        获取数据集
+        dataset_module = {
+            "train_dataset": Optional[Union["Dataset", "IterableDataset"]]
+            "eval_dataset": Optional[Union["Dataset", "IterableDataset"]]
+        }
+        """
+        print(f"函数: get_maml_dataset_list, 正在加载 {dataset_name=}")
+        data_args_copy.dataset = [dataset_name]
+        dataset_module = get_dataset(
+            template, model_args, data_args_copy, training_args, stage="sft", tokenizer=tokenizer, processor=processor
+        )
+
+        if "train_dataset" not in dataset_module.keys():
+            print(f"{dataset_name=}, \t dataset_module 中没有 `train_dataset`")
+            continue
+        if "eval_dataset" not in dataset_module.keys():
+            print(f"{dataset_name=}, \t dataset_module 中没有 `eval_dataset`")
+            continue
+
+        maml_training_dataset_list.append(dataset_module["train_dataset"])
+        maml_testing_dataset_list.append(dataset_module["eval_dataset"])
+
+    return maml_training_dataset_list, maml_testing_dataset_list
 
 
 def run_sft(
@@ -50,8 +105,19 @@ def run_sft(
     tokenizer = tokenizer_module["tokenizer"]
     # 获取模板并修复tokenizer
     template = get_template_and_fix_tokenizer(tokenizer, data_args)
+
+    # 获取元学习数据集
+    maml_training_dataset_list, maml_testing_dataset_list = get_maml_dataset_list(
+        template, model_args, data_args, training_args, stage="sft", **tokenizer_module
+    )
+
     # 获取数据集 dataset_module={"train_dataset": ..., "eval_dataset": ...}
-    dataset_module = get_dataset(template, model_args, data_args, training_args, stage="sft", **tokenizer_module)
+    # dataset_module = get_dataset(template, model_args, data_args, training_args, stage="sft", **tokenizer_module)
+    dataset_module = {
+        "train_dataset": maml_training_dataset_list[0],
+        "eval_dataset": maml_testing_dataset_list[0],
+    }
+
     # 加载模型
     model = load_model(tokenizer, model_args, finetuning_args, training_args.do_train)
 
