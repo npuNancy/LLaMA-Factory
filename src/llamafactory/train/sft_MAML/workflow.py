@@ -73,22 +73,22 @@ def get_maml_dataset_list(
             "eval_dataset": Optional[Union["Dataset", "IterableDataset"]]
         }
         """
-        print(f"函数: get_maml_dataset_list, 正在加载 {dataset_name=}")
+        logger.info_rank0(f"函数: get_maml_dataset_list, 正在加载 {dataset_name=}")
         data_args_copy.dataset = [dataset_name]
         dataset_module = get_dataset(
             template, model_args, data_args_copy, training_args, stage="sft", tokenizer=tokenizer, processor=processor
         )
 
         if "train_dataset" not in dataset_module.keys():
-            print(f"{dataset_name=}, \t dataset_module 中没有 `train_dataset`")
-            continue
+            logger.info_rank0(f"{dataset_name=}, \t dataset_module 中没有 `train_dataset`")
+        else:
+            maml_training_dataset_list.append(dataset_module["train_dataset"])
         if "eval_dataset" not in dataset_module.keys():
-            print(f"{dataset_name=}, \t dataset_module 中没有 `eval_dataset`")
-            continue
+            logger.info_rank0(f"{dataset_name=}, \t dataset_module 中没有 `eval_dataset`")
+        else:
+            maml_testing_dataset_list.append(dataset_module["eval_dataset"])
 
-        maml_training_dataset_list.append(dataset_module["train_dataset"])
-        maml_testing_dataset_list.append(dataset_module["eval_dataset"])
-
+        logger.info_rank0(f"{dataset_name=}, \t 加载完成")
     return maml_training_dataset_list, maml_testing_dataset_list
 
 
@@ -114,8 +114,8 @@ def run_sft(
     # 获取数据集 dataset_module={"train_dataset": ..., "eval_dataset": ...}
     # dataset_module = get_dataset(template, model_args, data_args, training_args, stage="sft", **tokenizer_module)
     dataset_module = {
-        "train_dataset": maml_training_dataset_list[0],
-        "eval_dataset": maml_testing_dataset_list[0],
+        "train_dataset": maml_training_dataset_list[0] if len(maml_training_dataset_list) > 0 else None,
+        "eval_dataset": maml_testing_dataset_list[0] if len(maml_testing_dataset_list) > 0 else None,
     }
 
     # 加载模型
