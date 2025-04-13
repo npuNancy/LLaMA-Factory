@@ -261,6 +261,7 @@ class CustomSeq2SeqTrainer(Seq2SeqTrainer):
         Subclass and override to inject custom behavior.
         """
         if self.args.predict_with_generate:  # do not pass labels to model when generate
+            # 生成时不将标签传递给模型
             labels = inputs.pop("labels", None)
         else:
             labels = inputs.get("labels")
@@ -670,13 +671,14 @@ class MAMLSeq2SeqTrainer(CustomSeq2SeqTrainer):
         if args.eval_on_start:
             self._evaluate(trial, ignore_keys_for_eval, skip_scheduler=True)
 
-        # 这是MAML的外层循环
-        # TODO: 这是主要的修改之处
+        ## 这是MAML的外层循环
+        ## 这是主要的修改之处
         for epoch in range(epochs_trained, num_train_epochs):
             """
             # 遍历每个用户（任务）
             # 每个任务的数据量: N-shot, K-query
             """
+            task_losses = []  # 用于存放每个任务的loss, 最后用于更新Model
             for maml_task in range(self.maml_num_tasks):
 
                 # --- 内循环：在支持集上做几步梯度更新 ---
@@ -911,23 +913,26 @@ class MAMLSeq2SeqTrainer(CustomSeq2SeqTrainer):
                 if self.is_fsdp_xla_v2_enabled:
                     query_dataloader = tpu_spmd_dataloader(query_dataloader)
 
-                # 在当前task的查询集上计算loss
-                output = eval_loop(
+                # 在当前task的查询集上用 task-specific 模型计算loss
+                query_loss = self.query_loop(
                     query_dataloader,
-                    description="Evaluation",
-                    # No point gathering the predictions if there are no metrics, otherwise we defer to
-                    # self.args.prediction_loss_only
-                    prediction_loss_only=True if self.compute_metrics is None else None,
-                    ignore_keys=ignore_keys,
-                    metric_key_prefix=metric_key_prefix,
+                    description="Query",
+                    # No point gathering the predictions if there are no metrics, otherwise we defer to self.args.prediction_loss_only
+                    # 如果没有指标，收集预测就没有意义了，否则我们只能听从self.args.prediction_loss_only
+                    # 仅返回 loss
+                    prediction_loss_only=True,
+                    ignore_keys=None,
                 )
 
-                ## 还原回 Model 和 Optimizer
+                task_losses.append(query_loss)  # 把当前task的loss保存下来
+
+                ############## 还原回 Model 和 Optimizer ##############
                 # 用原始模型参数（元参数）还原 self.model
                 model.load_state_dict(meta_params)
 
                 # 用原始的优化器参数，还原 self.optimizer
                 self.optimizer.load_state_dict(meta_optimizer)
+                ############## 还原回 Model 和 Optimizer ##############
 
                 self.control = self.callback_handler.on_epoch_end(args, self.state, self.control)
                 self._maybe_log_save_evaluate(tr_loss, grad_norm, model, trial, epoch, ignore_keys_for_eval, start_time)
@@ -941,8 +946,55 @@ class MAMLSeq2SeqTrainer(CustomSeq2SeqTrainer):
                             "You enabled PyTorch/XLA debug metrics but you don't have a TPU "
                             "configured. Check your training configuration if this is unexpected."
                         )
+                        # 输出中文
+                        logger.warning(
+                            "你启用了PyTorch/XLA调试指标，但你没有配置TPU。如果这是意外的，请检查你的训练配置。"
+                        )
                 if self.control.should_training_stop:
                     break
+            ################################
+            # 完成了1个epoch内所有Task的训练 #
+            ################################
+
+            ## 对 model 进行梯度更新
+            # 计算所有task的loss的平均值
+            assert len(task_losses) != 0, "task_losses的长度不能为0"
+            avg_loss = sum(task_losses) / len(task_losses)
+            loss = avg_loss
+
+            ############ 这部分是借鉴的 training_step ##############
+            kwargs = {}
+
+            # For LOMO optimizers you need to explicitly use the learnign rate
+            if self.args.optim in [OptimizerNames.LOMO, OptimizerNames.ADALOMO]:
+                kwargs["learning_rate"] = self._get_learning_rate()
+
+            if self.use_apex:
+                # 混合精度训练, 用 自动精度 包裹起来
+                with amp.scale_loss(loss, self.optimizer) as scaled_loss:
+                    scaled_loss.backward()
+            else:
+                """
+                Finally we need to normalize the loss for reporting
+                最后，我们需要将损失标准化以供报告.
+                gradient_accumulation_steps 用于控制在更新模型参数之前累积多少个小批量（mini-batch）的梯度。
+                当 GPU 内存不足以处理一个较大的批次时，可以通过将一个大批次拆分为多个小批次;
+                每个小批次计算梯度并累积起来，最后将累积的梯度用于更新模型参数.
+                """
+                if not self.model_accepts_loss_kwargs and self.compute_loss_func is None:
+                    loss = loss / self.args.gradient_accumulation_steps
+
+                # Turning off loss scaling w.r.t. gradient accumulation when DeepSpeed is enabled
+                # https://github.com/huggingface/transformers/pull/35808
+                if self.accelerator.distributed_type == DistributedType.DEEPSPEED:
+                    kwargs["scale_wrt_gas"] = False
+
+                self.accelerator.backward(loss, **kwargs)  # 反向传播
+            ############ 这部分是借鉴的 training_step ##############
+            self.optimizer.step()  # 更新 task-specific 模型参数
+            # self.optimizer.zero_grad() # 清空梯度
+
+            print("完成了1个epoch内所有Task的训练")
 
         if args.past_index and hasattr(self, "_past"):
             # Clean the state at the end of training
@@ -1006,6 +1058,193 @@ class MAMLSeq2SeqTrainer(CustomSeq2SeqTrainer):
             self._deactivate_neftune(self.model)
 
         return TrainOutput(self.state.global_step, train_loss, metrics)
+
+    # 根据 evaluation_loop 修改得来的 query_loop，用于在查询集上用 task-specific 模型计算loss
+    def query_loop(
+        self,
+        dataloader: DataLoader,
+        description: str,
+        prediction_loss_only: Optional[bool] = None,
+        ignore_keys: Optional[List[str]] = None,
+    ) -> float:
+        """
+        Description：
+            根据 evaluation_loop 修改得来的 query_loop，用于在查询集上用 task-specific 模型计算loss
+
+            Prediction/evaluation loop, shared by `Trainer.evaluate()` and `Trainer.predict()`.
+            Works both with or without labels.
+        Args:
+            prediction_loss_only (`bool`): Whether or not to return the loss only. 是否仅返回损失。
+                - prediction_loss_only = True: return (loss, None, None)
+                - prediction_loss_only = False: return (loss, logits, labels)
+            ignore_keys: 模型输出中的一系列键（如果是字典），在收集预测时应该忽略这些键。
+        Returns:
+            result_loss (`float`): 损失
+        """
+        args = self.args
+
+        prediction_loss_only = prediction_loss_only if prediction_loss_only is not None else args.prediction_loss_only
+
+        # if eval is called w/o train, handle model prep here
+        if self.is_deepspeed_enabled and self.deepspeed is None:
+            _, _ = deepspeed_init(self, num_training_steps=0, inference=True)
+
+        model = self._wrap_model(self.model, training=False, dataloader=dataloader)
+
+        if len(self.accelerator._models) == 0 and model is self.model:
+            start_time = time.time()
+            model = (
+                self.accelerator.prepare(model)
+                if self.is_deepspeed_enabled or (self.is_fsdp_enabled and self.accelerator.mixed_precision != "fp8")
+                else self.accelerator.prepare_model(model, evaluation_mode=True)
+            )
+            self.model_preparation_time = round(time.time() - start_time, 4)
+
+            if self.is_fsdp_enabled:
+                self.model = model
+
+            # for the rest of this function `model` is the outside model, whether it was wrapped or not
+            if model is not self.model:
+                self.model_wrapped = model
+
+            # backward compatibility
+            if self.is_deepspeed_enabled:
+                self.deepspeed = self.model_wrapped
+
+        # if full fp16 or bf16 eval is wanted and this ``evaluation`` or ``predict`` isn't called
+        # while ``train`` is running, cast it to the right dtype first and then put on device
+        if not self.is_in_train:
+            if args.fp16_full_eval:
+                model = model.to(dtype=torch.float16, device=args.device)
+            elif args.bf16_full_eval:
+                model = model.to(dtype=torch.bfloat16, device=args.device)
+
+        batch_size = self.args.eval_batch_size
+
+        logger.info(f"\n***** Running {description} *****")
+        if has_length(dataloader):
+            logger.info(f"  Num examples = {self.num_examples(dataloader)}")
+        else:
+            logger.info("  Num examples: Unknown")
+        logger.info(f"  Batch size = {batch_size}")
+
+        model.eval()
+        if hasattr(self.optimizer, "eval") and callable(self.optimizer.eval):
+            self.optimizer.eval()
+
+        self.callback_handler.eval_dataloader = dataloader
+        # Do this before wrapping.
+        eval_dataset = getattr(dataloader, "dataset", None)
+
+        if args.past_index >= 0:
+            self._past = None
+
+        # Initialize containers
+        # 将损失值、预测值、标签和输入值都收集到各自的容器中
+        all_losses = EvalLoopContainer(self.args.eval_do_concat_batches, padding_index=-100)
+        all_preds = EvalLoopContainer(self.args.eval_do_concat_batches, padding_index=-100)
+        all_labels = EvalLoopContainer(self.args.eval_do_concat_batches, padding_index=-100)
+        all_inputs = EvalLoopContainer(self.args.eval_do_concat_batches, padding_index=-100)
+
+        metrics = None
+        eval_set_kwargs = {}  # 存放 losses 等参数，用于在计算评估指标时使用
+
+        # Will be useful when we have an iterable dataset so don't know its length.
+        observed_num_examples = 0
+
+        # Main evaluation loop
+        for step, inputs in enumerate(dataloader):
+            # Update the observed num examples
+            observed_batch_size = find_batch_size(inputs)
+            if observed_batch_size is not None:
+                observed_num_examples += observed_batch_size
+                # For batch samplers, batch_size is not known by the dataloader in advance.
+                if batch_size is None:
+                    batch_size = observed_batch_size
+
+            ## Prediction step
+            # prediction_loss_only == True 的话, losses, logits, labels
+            # 会调用 CustomSeq2SeqTrainer.prediction_step
+            losses, logits, labels = self.prediction_step(model, inputs, prediction_loss_only, ignore_keys=ignore_keys)
+            main_input_name = getattr(self.model, "main_input_name", "input_ids")
+            inputs_decode = (
+                self._prepare_input(inputs[main_input_name]) if "inputs" in args.include_for_metrics else None
+            )
+
+            if is_torch_xla_available():
+                xm.mark_step()
+
+            # Update containers 更新容器
+            if losses is not None:
+                losses = self.gather_function((losses.repeat(batch_size)))
+                all_losses.add(losses)
+            if inputs_decode is not None:
+                inputs_decode = self.accelerator.pad_across_processes(inputs_decode, dim=1, pad_index=-100)
+                inputs_decode = self.gather_function((inputs_decode))
+                if not self.args.batch_eval_metrics or description == "Prediction":
+                    all_inputs.add(inputs_decode)
+
+            if labels is not None:
+                # Pad labels here, preparing for preprocess_logits_for_metrics in next logits block.
+                labels = self.accelerator.pad_across_processes(labels, dim=1, pad_index=-100)
+            if logits is not None:
+                logits = self.accelerator.pad_across_processes(logits, dim=1, pad_index=-100)
+                if self.preprocess_logits_for_metrics is not None:
+                    logits = self.preprocess_logits_for_metrics(logits, labels)
+                logits = self.gather_function((logits))
+                if not self.args.batch_eval_metrics or description == "Prediction":
+                    all_preds.add(logits)
+            if labels is not None:
+                labels = self.gather_function((labels))
+                if not self.args.batch_eval_metrics or description == "Prediction":
+                    all_labels.add(labels)
+
+            self.control = self.callback_handler.on_prediction_step(args, self.state, self.control)
+
+            if self.args.batch_eval_metrics:
+                if self.compute_metrics is not None and logits is not None and labels is not None:
+                    is_last_step = self.accelerator.gradient_state.end_of_dataloader
+                    batch_kwargs = {}
+                    batch_kwargs["losses"] = losses if "loss" in args.include_for_metrics else None
+                    batch_kwargs["inputs"] = inputs if "inputs" in args.include_for_metrics else None
+                    metrics = self.compute_metrics(
+                        EvalPrediction(predictions=logits, label_ids=labels, **batch_kwargs),
+                        compute_result=is_last_step,
+                    )
+
+                del losses, logits, labels, inputs
+                torch.cuda.empty_cache()
+
+            # Gather all tensors and put them back on the CPU if we have done enough accumulation steps.
+            # 生成时不将标签传递给模型
+            elif args.eval_accumulation_steps is not None and (step + 1) % args.eval_accumulation_steps == 0:
+                all_losses.to_cpu_and_numpy()
+                all_preds.to_cpu_and_numpy()
+                all_labels.to_cpu_and_numpy()
+                all_inputs.to_cpu_and_numpy()
+
+                del losses, logits, labels, inputs
+                torch.cuda.empty_cache()
+
+        # After all calls to `.gather_function`, reset to `gather_for_metrics`:
+        self.gather_function = self.accelerator.gather_for_metrics
+        if args.past_index and hasattr(self, "_past"):
+            # Clean the state at the end of the evaluation loop
+            delattr(self, "_past")
+
+        # Gather all remaining tensors and put them back on the CPU
+        all_losses = all_losses.get_arrays()  # 将损失值收集到 all_losses 容器中，并在最后计算平均损失
+        all_preds = all_preds.get_arrays()
+        all_labels = all_labels.get_arrays()
+        all_inputs = all_inputs.get_arrays()
+
+        result_loss = None
+        if isinstance(all_losses, list) and all_losses:
+            result_loss = np.concatenate(all_losses).mean().item()
+        elif isinstance(all_losses, np.ndarray):
+            result_loss = all_losses.mean().item()
+
+        return result_loss
 
 
 if __name__ == "__main__":
