@@ -33,6 +33,7 @@ from .ppo import run_ppo
 from .pt import run_pt
 from .rm import run_rm
 from .sft import run_sft
+from .sft_MAML import run_sft as run_sft_maml
 from .trainer_utils import get_ray_trainer, get_swanlab_callback
 
 
@@ -64,7 +65,8 @@ def _training_function(config: Dict[str, Any]) -> None:
     if finetuning_args.stage == "pt":
         run_pt(model_args, data_args, training_args, finetuning_args, callbacks)
     elif finetuning_args.stage == "sft":
-        run_sft(model_args, data_args, training_args, finetuning_args, generating_args, callbacks)
+        # run_sft(model_args, data_args, training_args, finetuning_args, generating_args, callbacks)
+        run_sft_maml(model_args, data_args, training_args, finetuning_args, generating_args, callbacks)
     elif finetuning_args.stage == "rm":
         run_rm(model_args, data_args, training_args, finetuning_args, callbacks)
     elif finetuning_args.stage == "ppo":

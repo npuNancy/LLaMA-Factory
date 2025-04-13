@@ -25,7 +25,7 @@ from ...extras.ploting import plot_loss
 from ...model import load_model, load_tokenizer
 from ..trainer_utils import create_modelcard_and_push
 from .metric import ComputeAccuracy, ComputeSimilarity, eval_logit_processor
-from .trainer import CustomSeq2SeqTrainer
+from .trainer import CustomSeq2SeqTrainer, MAMLSeq2SeqTrainer
 
 
 if TYPE_CHECKING:
@@ -50,7 +50,7 @@ def run_sft(
     tokenizer = tokenizer_module["tokenizer"]
     # 获取模板并修复tokenizer
     template = get_template_and_fix_tokenizer(tokenizer, data_args)
-    # 获取数据集
+    # 获取数据集 dataset_module={"train_dataset": ..., "eval_dataset": ...}
     dataset_module = get_dataset(template, model_args, data_args, training_args, stage="sft", **tokenizer_module)
     # 加载模型
     model = load_model(tokenizer, model_args, finetuning_args, training_args.do_train)
@@ -95,8 +95,25 @@ def run_sft(
 
     # Initialize our Trainer
     # 初始化我们的Trainer
+    """
     trainer = CustomSeq2SeqTrainer(
         model=model,
+        args=training_args,
+        finetuning_args=finetuning_args,
+        data_collator=data_collator,
+        callbacks=callbacks,
+        gen_kwargs=gen_kwargs,
+        **dataset_module,
+        **tokenizer_module,
+        **metric_module,
+    )
+    """
+
+    # TODO: maml_support_dataset_list, maml_query_dataset_list
+    trainer = MAMLSeq2SeqTrainer(
+        model=model,
+        maml_support_dataset_list="",
+        maml_query_dataset_list="",
         args=training_args,
         finetuning_args=finetuning_args,
         data_collator=data_collator,
