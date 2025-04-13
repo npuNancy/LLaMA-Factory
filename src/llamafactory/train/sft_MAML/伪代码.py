@@ -71,3 +71,51 @@ class MAML(object):
 
             # 外层 用 loss_avg 更新Model
             loss_avg = np.mean(loss_sum)
+
+
+def fun():
+    # 对以一个 epoch
+    task_losses = []
+    for maml_task in range(self.maml_num_tasks):
+        # 1. 获取该任务的支持集和查询集（你可根据需要分割）
+        full_dataset = self.maml_train_dataset_list[maml_task]
+        support_dataset, query_dataset = torch.utils.data.random_split(
+            full_dataset, [int(0.5 * len(full_dataset)), len(full_dataset) - int(0.5 * len(full_dataset))]
+        )
+
+        support_loader = DataLoader(support_dataset, batch_size=self.args.per_device_train_batch_size)
+        query_loader = DataLoader(query_dataset, batch_size=self.args.per_device_train_batch_size)
+
+        # 2. 拷贝模型和优化器（用于 task-specific 内循环）
+        inner_model = copy.deepcopy(self.model)
+        inner_model.to(self.args.device)
+        inner_optimizer = torch.optim.Adam(inner_model.parameters(), lr=1e-3)
+
+        # 3. 内循环：在支持集上训练 inner_model
+        inner_model.train()
+        for inner_epoch in range(self.maml_inner_epochs):
+            for support_inputs in support_loader:
+                support_inputs = self._prepare_inputs(support_inputs)
+                inner_optimizer.zero_grad()
+                support_loss = self.compute_loss(inner_model, support_inputs)
+                support_loss.backward()
+                inner_optimizer.step()
+
+        # 4. 外循环：用 inner_model 在查询集上计算损失
+        query_loss_total = 0.0
+        for query_inputs in query_loader:
+            query_inputs = self._prepare_inputs(query_inputs)
+            inner_model.eval()
+            with torch.no_grad():
+                query_loss = self.compute_loss(inner_model, query_inputs)
+            query_loss_total += query_loss
+        meta_loss = query_loss_total / len(query_loader)
+
+        task_losses.append(meta_loss)
+
+    # 5. 对 meta model 做反向传播，用 query_loss 更新 meta parameters
+    loss_avg = np.mean(task_losses)
+    self.model.train()
+    self.optimizer.zero_grad()
+    self.accelerator.backward(loss_avg)
+    self.optimizer.step()
