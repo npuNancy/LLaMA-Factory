@@ -823,6 +823,10 @@ class MAMLSeq2SeqTrainer(CustomSeq2SeqTrainer):
 
                 # 用原始的优化器参数，还原 self.optimizer
                 self.optimizer.load_state_dict(meta_optimizer)
+
+                # 释放 meta_params 和 meta_optimizer, 以免占用过多内存
+                del meta_params
+                del meta_optimizer
                 ############## 还原回 Model 和 Optimizer ##############
 
                 self.control = self.callback_handler.on_epoch_end(args, self.state, self.control)
