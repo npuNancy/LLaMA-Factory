@@ -333,16 +333,21 @@ class MAMLSeq2SeqTrainer(CustomSeq2SeqTrainer):
         preprocess_logits_for_metrics: Optional[Callable[[torch.Tensor, torch.Tensor], torch.Tensor]] = None,
     """
 
-    def __init__(self, maml_train_dataset_list, *args, **kwargs):
+    def __init__(self, maml_support_dataset_list, maml_query_dataset_list, maml_inner_epochs=5, *args, **kwargs):
         """
         Args:
-            maml_train_dataset_list: List[train_dataset]
+            maml_support_dataset_list: List[train_dataset]
         """
         super().__init__(*args, **kwargs)
-        self.maml_train_dataset_list = maml_train_dataset_list  # MAML 训练任务列表
-        self.maml_num_tasks = len(maml_train_dataset_list)  # MAML 训练任务的数量
-        self.maml_inner_epochs = 5  # MAML 每个任务的训练轮次
+        assert len(maml_support_dataset_list) == len(maml_query_dataset_list), "支持集和查询集数量不一致"
+        self.maml_support_dataset_list = maml_support_dataset_list  # MAML 训练的 支持集列表
+        self.maml_query_dataset_list = maml_query_dataset_list  # MAML 训练的 查询集列表
+        self.maml_num_tasks = len(maml_support_dataset_list)  # MAML 训练任务的数量
 
+        # 这个无法使用
+        self.maml_inner_epochs = maml_inner_epochs  # MAML 每个任务的训练轮次
+
+    # 实际上不需要重写 train 方法
     def train(
         self,
         resume_from_checkpoint: Optional[Union[str, bool]] = None,
@@ -451,6 +456,7 @@ class MAMLSeq2SeqTrainer(CustomSeq2SeqTrainer):
                 ignore_keys_for_eval=ignore_keys_for_eval,
             )
 
+    @override
     def _inner_training_loop(
         self, batch_size=None, args=None, resume_from_checkpoint=None, trial=None, ignore_keys_for_eval=None
     ):
@@ -547,6 +553,7 @@ class MAMLSeq2SeqTrainer(CustomSeq2SeqTrainer):
         # as the model is wrapped, don't use `accelerator.prepare`
         # this is for unhandled cases such as
         # FSDP-XLA, SageMaker MP/DP, DataParallel, IPEX
+        # 包装模型时，不要使用“accelerator.prepare”，这适用于未处理的情况，如FSDP-XLA、SageMaker MP/DP、DataParallel、IPEX
         use_accelerator_prepare = True if model is self.model else False
 
         if use_accelerator_prepare and self.is_fsdp_enabled:
@@ -656,7 +663,7 @@ class MAMLSeq2SeqTrainer(CustomSeq2SeqTrainer):
         # _total_loss_scalar is updated everytime .item() has to be called on tr_loss and stores the sum of all losses
         self._total_loss_scalar = 0.0
         self._globalstep_last_logged = self.state.global_step
-        model.zero_grad()
+        model.zero_grad()  # 清空梯度
         grad_norm: Optional[float] = None
         self.control = self.callback_handler.on_train_begin(args, self.state, self.control)
 
@@ -672,18 +679,21 @@ class MAMLSeq2SeqTrainer(CustomSeq2SeqTrainer):
             """
             for maml_task in range(self.maml_num_tasks):
 
-                # TODO 这里应该复制一个 model 和 optimizer, 用来完成这个Task的训练
+                # --- 内循环：在支持集上做几步梯度更新 ---
+                # 克隆一份模型供内循环使用，防止直接改动 model 参数
+                # 也可以直接修改 model 但后续必须还原！
+                # 注意：此处为了简单，直接对 model 参数做更新，要求后续将其还原！
+                # 在 MAML 内循环中，使用 model 和 self.optimizer 来训练 task-specific model
+
+                # 保存当前模型参数（元参数）作为备份
+                meta_params = copy.deepcopy(model.state_dict())
+
+                # 复制一份 self.optimizer 作为备份
+                meta_optimizer = copy.deepcopy(self.optimizer.state_dict())
 
                 ## 数据加载器
-                self.train_dataset = self.maml_train_dataset_list[maml_task]  # 第maml_task个任务的数据集
-                train_dataloader = self.get_train_dataloader()  # 这个函数会读取 self.train_dataset.
-                if self.is_fsdp_xla_v2_enabled:
-                    train_dataloader = tpu_spmd_dataloader(train_dataloader)
-                epoch_dataloader = train_dataloader
-
-                if hasattr(epoch_dataloader, "set_epoch"):
-                    epoch_dataloader.set_epoch(epoch)
-                train_dataloader = self.get_train_dataloader()
+                self.train_dataset = self.maml_support_dataset_list[maml_task]  # 第maml_task个任务的 支持集
+                train_dataloader = self.get_train_dataloader()  # 这个函数会读取 self.train_dataset
                 if self.is_fsdp_xla_v2_enabled:
                     train_dataloader = tpu_spmd_dataloader(train_dataloader)
                 epoch_dataloader = train_dataloader
@@ -720,6 +730,7 @@ class MAMLSeq2SeqTrainer(CustomSeq2SeqTrainer):
                 step = -1
                 epoch_iterator = iter(epoch_dataloader)
                 # We chunkify the epoch iterator into gradient accumulation steps `n` batches
+                # 我们将epoch迭代器分块为梯度累积步骤`n`批
                 remainder = num_examples % args.gradient_accumulation_steps
                 if remainder == 0:
                     remainder = args.gradient_accumulation_steps
@@ -843,7 +854,7 @@ class MAMLSeq2SeqTrainer(CustomSeq2SeqTrainer):
 
                             # 正常应该调用optimizer.zero_grad()，防止梯度累加干扰当前批次的计算
                             # 但梯度累加也可用于模拟大batch训练
-                            self.optimizer.step()  # 更新模型参数
+                            self.optimizer.step()  # 更新 task-specific 模型参数
 
                             self.control = self.callback_handler.on_optimizer_step(args, self.state, self.control)
 
@@ -890,8 +901,33 @@ class MAMLSeq2SeqTrainer(CustomSeq2SeqTrainer):
 
                 """
                 这里完成了当前task的训练
-                用当前task的 查询集 计算原始模型的loss, 并保存（不在这里做反向传播）
+                用当前task的 查询集 计算 Model_i 的loss, 并保存（不在这里做反向传播）
                 """
+
+                # TODO 这里可以优化: 在init的时候，将所有task的查询集都加载到内存中，而不是每次都加载
+                # 加载查询集
+                query_dataset = self.maml_query_dataset_list[maml_task]  # 第maml_task个任务的 查询集
+                query_dataloader = self.get_test_dataloader(query_dataset)  # 获取查询集的 dataloader
+                if self.is_fsdp_xla_v2_enabled:
+                    query_dataloader = tpu_spmd_dataloader(query_dataloader)
+
+                # 在当前task的查询集上计算loss
+                output = eval_loop(
+                    query_dataloader,
+                    description="Evaluation",
+                    # No point gathering the predictions if there are no metrics, otherwise we defer to
+                    # self.args.prediction_loss_only
+                    prediction_loss_only=True if self.compute_metrics is None else None,
+                    ignore_keys=ignore_keys,
+                    metric_key_prefix=metric_key_prefix,
+                )
+
+                ## 还原回 Model 和 Optimizer
+                # 用原始模型参数（元参数）还原 self.model
+                model.load_state_dict(meta_params)
+
+                # 用原始的优化器参数，还原 self.optimizer
+                self.optimizer.load_state_dict(meta_optimizer)
 
                 self.control = self.callback_handler.on_epoch_end(args, self.state, self.control)
                 self._maybe_log_save_evaluate(tr_loss, grad_norm, model, trial, epoch, ignore_keys_for_eval, start_time)
