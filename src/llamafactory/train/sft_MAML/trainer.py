@@ -18,6 +18,7 @@
 import os
 import json
 import time
+import collections
 from types import MethodType
 from typing import TYPE_CHECKING, Any, Dict, List, Optional, Tuple, Union
 
@@ -359,11 +360,23 @@ class MAMLSeq2SeqTrainer(CustomSeq2SeqTrainer):
         # 这个无法使用
         self.maml_inner_epochs = None  # MAML 每个任务的训练轮次
 
+    def __get_gpu_memory(self, text: str = None):
+        if text:
+            logger.info(f"[===GPU MEMORY===] {text} <=========")
+        # 查看当前已分配的显存 (单位: Byte)
+        allocated = torch.cuda.memory_allocated(device=None)  # 默认当前设备
+        logger.info(f"[===GPU MEMORY===] 已分配显存: {allocated / 1024**2:.2f} MB <=========")
+
+        # 查看当前已保留的缓存显存 (PyTorch 预分配但未使用的部分)
+        reserved = torch.cuda.memory_reserved(device=None)
+        logger.info(f"[===GPU MEMORY===] 已保留显存: {reserved / 1024**2:.2f} MB <=========")
+
     @override
     def _inner_training_loop(
         self, batch_size=None, args=None, resume_from_checkpoint=None, trial=None, ignore_keys_for_eval=None
     ):
-        self.accelerator.free_memory()
+        self.accelerator.free_memory()  # 释放显存
+        self.__get_gpu_memory("训练开始时")
         self._train_batch_size = batch_size
         if self.args.auto_find_batch_size:
             if self.state.train_batch_size != self._train_batch_size:
@@ -582,20 +595,32 @@ class MAMLSeq2SeqTrainer(CustomSeq2SeqTrainer):
             """
             logger.info_rank0(f"{'='*10}> 当前在第 {epoch} 个Epoch.")
             task_losses = []  # 用于存放每个任务的loss, 最后用于更新Model
+            self.__get_gpu_memory(f"第 {epoch} 个Epoch, 复制前")
+            ############### 更新的代码 ###########
+            ## 这里保存一份当前模型的参数，用于给后面 Task-Specific Model 初始化
+            # 保存当前模型参数（元参数）作为备份
+            meta_params = copy.deepcopy(model.state_dict())
+            # 复制一份 self.optimizer 作为备份
+            meta_optimizer = copy.deepcopy(self.optimizer.state_dict())
+            ############### 更新的代码 ###########
+            self.__get_gpu_memory(f"第 {epoch} 个Epoch, 复制后")
+
             for maml_task in range(self.maml_num_tasks):
                 logger.info_rank0(f"{'='*10}> 当前在第 {epoch} 个Epoch的第 {maml_task} 个任务.")
 
                 # --- 内循环：在支持集上做几步梯度更新 ---
                 # 克隆一份模型供内循环使用，防止直接改动 model 参数
-                # 也可以直接修改 model 但后续必须还原！
-                # 注意：此处为了简单，直接对 model 参数做更新，要求后续将其还原！
                 # 在 MAML 内循环中，使用 model 和 self.optimizer 来训练 task-specific model
 
-                # 保存当前模型参数（元参数）作为备份
-                meta_params = copy.deepcopy(model.state_dict())
-
-                # 复制一份 self.optimizer 作为备份
-                meta_optimizer = copy.deepcopy(self.optimizer.state_dict())
+                self.__get_gpu_memory(f"在第 {epoch} 个Epoch的第 {maml_task} 个任务. Model 初始化前")
+                ############### 更新的代码 ###########
+                # Task-Specific Model 初始化
+                model.load_state_dict(meta_params)
+                self.optimizer.load_state_dict(meta_optimizer)
+                # 重置优化器状态
+                self.optimizer.state = collections.defaultdict(dict)
+                ############### 更新的代码 ###########
+                self.__get_gpu_memory(f"在第 {epoch} 个Epoch的第 {maml_task} 个任务. Model 初始化后")
 
                 ## 数据加载器
                 self.support_dataset, self.query_dataset = self.process_MAML_dataset(
@@ -812,7 +837,9 @@ class MAMLSeq2SeqTrainer(CustomSeq2SeqTrainer):
                     )
                     self.control.should_training_stop = True
 
-                logger.info_rank0(f"{'='*10}> 完成第 {epoch} 个Epoch 的 第 {maml_task} 个任务的训练")
+                logger.info_rank0(f"{'='*10}> 完成第 {epoch} 个Epoch的第 {maml_task} 个任务的support训练")
+
+                self.__get_gpu_memory(f"完成第 {epoch} 个Epoch的第 {maml_task} 个任务的support训练")
                 ################# END 这里完成了当前task的训练 END ##########
 
                 ## 用当前task的 查询集 计算 Model_i 的loss, 并保存（不在这里做反向传播）
@@ -834,20 +861,9 @@ class MAMLSeq2SeqTrainer(CustomSeq2SeqTrainer):
 
                 task_losses.append(query_loss)  # 把当前task的loss保存下来
 
-                ############## 还原回 Model 和 Optimizer ##############
-                # 用原始模型参数（元参数）还原 self.model
-                model.load_state_dict(meta_params)
-
-                # 用原始的优化器参数，还原 self.optimizer
-                self.optimizer.load_state_dict(meta_optimizer)
-
-                # 释放 meta_params 和 meta_optimizer, 以免占用过多内存
-                del meta_params
-                del meta_optimizer
-                ############## 还原回 Model 和 Optimizer ##############
-
                 self.control = self.callback_handler.on_epoch_end(args, self.state, self.control)
                 self._maybe_log_save_evaluate(tr_loss, grad_norm, model, trial, epoch, ignore_keys_for_eval, start_time)
+                self.__get_gpu_memory(f"完成第 {epoch} 个Epoch的第 {maml_task} 个任务的query推理")
 
                 if DebugOption.TPU_METRICS_DEBUG in self.args.debug:
                     if is_torch_xla_available():
@@ -868,6 +884,12 @@ class MAMLSeq2SeqTrainer(CustomSeq2SeqTrainer):
             # 完成了1个epoch内所有Task的训练 #
             ################################
             logger.info_rank0(f"{'='*10}> 完成第 {epoch} 个Epoch内所有任务的训练, {len(self.maml_num_tasks)=}.")
+
+            self.__get_gpu_memory(f"完成第 {epoch} 个Epoch内所有任务的训练时， 还未还原Model和Optimizer")
+            ############## 还原回 Epoch 开始时的 Model 和 Optimizer ##############
+            model.load_state_dict(meta_params)
+            self.optimizer.load_state_dict(meta_optimizer)
+            self.__get_gpu_memory(f"完成第 {epoch} 个Epoch内所有任务的训练时， 还原回Epoch开始时的Model和Optimizer")
 
             ## 对 model 进行梯度更新
             # 计算所有task的loss的平均值
