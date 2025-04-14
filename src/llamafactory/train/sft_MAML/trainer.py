@@ -596,7 +596,9 @@ class MAMLSeq2SeqTrainer(CustomSeq2SeqTrainer):
                 meta_optimizer = copy.deepcopy(self.optimizer.state_dict())
 
                 ## 数据加载器
-                self.support_dataset, self.query_dataset = self.process_MAML_dataset(self.maml_training_dataset_list[maml_task])
+                self.support_dataset, self.query_dataset = self.process_MAML_dataset(
+                    self.maml_training_dataset_list[maml_task]
+                )
                 self.train_dataset = self.support_dataset  # 第maml_task个任务的 支持集
                 train_dataloader = self.get_train_dataloader()  # 这个函数会读取 self.train_dataset
                 if self.is_fsdp_xla_v2_enabled:
@@ -897,7 +899,9 @@ class MAMLSeq2SeqTrainer(CustomSeq2SeqTrainer):
             self.optimizer.step()  # 更新 task-specific 模型参数
             # self.optimizer.zero_grad() # 清空梯度
 
-            print("完成了1个epoch内所有Task的训练")
+            logger.info_rank0("完成了1个epoch内所有Task的训练")
+
+            # FIXME: AttributeError: 'float' object has no attribute 'backward'
 
         if args.past_index and hasattr(self, "_past"):
             # Clean the state at the end of training
@@ -1168,35 +1172,20 @@ class MAMLSeq2SeqTrainer(CustomSeq2SeqTrainer):
         num_shots = self.num_shots
         num_querys = self.num_querys
         if train_dataset is None:
-            print("错误: train_dataset is None! Exit!")
-            exit()
-
-        # 将数据集转换为列表格式以便处理
-        if isinstance(train_dataset, (Dataset, IterableDataset, datasets.Dataset)):
-            dataset_list = train_dataset.to_list()
-        else:
-            dataset_list = list(train_dataset)
-
-        # 检查数据集是否为空
-        if not dataset_list:
-            print("错误: 数据集是否为空")
+            logger.error("错误: train_dataset is None! Exit!")
             exit()
 
         # 确保样本数量不超过数据集大小
-        total_samples = len(dataset_list)
+        total_samples = len(train_dataset)
         if num_shots + num_querys > total_samples:
-            print("错误: num_shots + num_querys > total_samples")
+            logger.error("错误: num_shots + num_querys > total_samples")
             exit()
 
-        # 随机选择支持集和查询集
-        random.shuffle(dataset_list)
-        samples = random.sample(dataset_list, num_shots + num_querys)
-        support_samples = samples[:num_shots]
-        query_samples = samples[num_shots:]
+        logger.info_rank0(f"{type(train_dataset)=}")
 
-        # 构造支持集和查询集
-        support_dataset = Dataset.from_dict({k: [d[k] for d in support_samples] for k in support_samples[0]})
-        query_dataset = Dataset.from_dict({k: [d[k] for d in query_samples] for k in query_samples[0]})
+        shuffled_dataset = train_dataset.shuffle(seed=42)
+        support_dataset = shuffled_dataset.select(range(0, num_shots))
+        query_dataset = shuffled_dataset.select(range(num_shots, num_shots + num_querys))
 
         return support_dataset, query_dataset
 
