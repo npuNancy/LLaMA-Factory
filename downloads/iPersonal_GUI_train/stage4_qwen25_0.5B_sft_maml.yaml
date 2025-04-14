@@ -1,5 +1,7 @@
-## Train
-## lmf train downloads/iPersonal_GUI_train/stage4_qwen25_0.5B_sft_maml.yaml > saves/logs/stage4/train_$(date +%Y%m%d_%H%M).txt
+### Train
+# CUDA_VISIBLE_DEVICES=1 lmf train \
+#   downloads/iPersonal_GUI_train/stage4_qwen25_0.5B_sft_maml.yaml \
+#   > saves/logs/stage4/train_$(date +%Y%m%d_%H%M).txt
 ### model
 model_name_or_path: /data4/yanxiaokai/Models/modelscope/hub/Qwen/Qwen2___5-0___5B-Instruct
 # image_max_pixels: 262144
