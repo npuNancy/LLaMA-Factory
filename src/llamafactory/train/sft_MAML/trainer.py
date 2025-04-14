@@ -550,6 +550,7 @@ class MAMLSeq2SeqTrainer(CustomSeq2SeqTrainer):
         steps_trained_progress_bar = None
 
         # Check if continuing training from a checkpoint
+        # 断点续训
         if resume_from_checkpoint is not None and os.path.isfile(
             os.path.join(resume_from_checkpoint, TRAINER_STATE_NAME)
         ):
@@ -644,6 +645,8 @@ class MAMLSeq2SeqTrainer(CustomSeq2SeqTrainer):
                     epoch_dataloader.set_epoch(epoch)
 
                 # 内循环
+                step = -1
+                update_step = -1
                 for i in range(self.maml_inner_epochs):
                     # Reset the past mems state at the beginning of each epoch if necessary.
                     # 重置过去mems状态，在每次epoch开始时
@@ -667,19 +670,22 @@ class MAMLSeq2SeqTrainer(CustomSeq2SeqTrainer):
                     rng_to_sync = False
                     steps_skipped = 0
                     if steps_trained_in_current_epoch > 0:
+                        # 创建`torch.utils.data.DataLoader`
+                        # 将有效地跳过前几个num_batches。如果原始数据加载器是“StatefulDataLoader”，则不应使用。
                         epoch_dataloader = skip_first_batches(epoch_dataloader, steps_trained_in_current_epoch)
                         steps_skipped = steps_trained_in_current_epoch
                         steps_trained_in_current_epoch = 0
                         rng_to_sync = True
 
-                    step = -1
+                    # step = -1
                     epoch_iterator = iter(epoch_dataloader)
                     # We chunkify the epoch iterator into gradient accumulation steps `n` batches
                     # 我们将epoch迭代器分块为梯度累积步骤`n`批
                     remainder = num_examples % args.gradient_accumulation_steps
                     if remainder == 0:
                         remainder = args.gradient_accumulation_steps
-                    update_step = -1
+                    # update_step = -1
+                    # gradient_accumulation_steps 用于控制在更新模型参数之前累积多少个小批量（mini-batch）的梯度。
                     total_updates = steps_in_epoch // args.gradient_accumulation_steps + 1
                     if args.gradient_accumulation_steps == 1:
                         total_updates -= 1
@@ -691,6 +697,7 @@ class MAMLSeq2SeqTrainer(CustomSeq2SeqTrainer):
                         num_batches = (
                             args.gradient_accumulation_steps if update_step != (total_updates - 1) else remainder
                         )
+                        # 获取当前批次的样本和批次中的项目数量
                         batch_samples, num_items_in_batch = self.get_batch_samples(epoch_iterator, num_batches)
                         for i, inputs in enumerate(batch_samples):
                             step += 1
@@ -703,6 +710,7 @@ class MAMLSeq2SeqTrainer(CustomSeq2SeqTrainer):
                             # Since we perform prefetching, we need to manually set sync_gradients
                             self.accelerator.gradient_state._set_sync_gradients(do_sync_step)
 
+                            # 跟踪输入令牌的数量. 评估模型的性能和资源使用情况时可以使用
                             if self.args.include_num_input_tokens_seen:
                                 main_input_name = getattr(self.model, "main_input_name", "input_ids")
                                 if main_input_name not in inputs:
@@ -712,18 +720,20 @@ class MAMLSeq2SeqTrainer(CustomSeq2SeqTrainer):
                                         "a `main_input_name` attribute to the model class you are using."
                                     )
                                 else:
-                                    input_tokens = inputs[main_input_name].numel()
+                                    # 提取输入令牌的数量
+                                    input_tokens = inputs[main_input_name].numel()  # numel()函数返回张量中元素的数量。
                                     input_tokens = torch.tensor(
                                         input_tokens, device=self.args.device, dtype=torch.int64
-                                    )
+                                    )  # 转换为PyTorch张量
                                     self.state.num_input_tokens_seen += (
                                         self.accelerator.gather(input_tokens).sum().cpu().item()
-                                    )
+                                    )  # 累加输入令牌的数量
                             if rng_to_sync:
                                 self._load_rng_state(resume_from_checkpoint)
                                 rng_to_sync = False
 
                             # Skip past any already trained steps if resuming training
+                            # 跳过任何已经训练过的步骤，如果正在恢复训练
                             if steps_trained_in_current_epoch > 0:
                                 steps_trained_in_current_epoch -= 1
                                 if steps_trained_progress_bar is not None:
@@ -739,6 +749,7 @@ class MAMLSeq2SeqTrainer(CustomSeq2SeqTrainer):
                                 self.control = self.callback_handler.on_step_begin(args, self.state, self.control)
 
                             # We explicitly want to avoid relying on `accelerator.accumulate` for generation training
+                            # 我们明确地不想依赖 `accelerator.accumulate` 来进行生成训练
                             context = (
                                 functools.partial(self.accelerator.no_sync, model=model)
                                 if i != len(batch_samples) - 1
@@ -868,24 +879,235 @@ class MAMLSeq2SeqTrainer(CustomSeq2SeqTrainer):
 
                 ################# END 这里完成了当前task的训练 END ##########
 
+                ######### 计算 Task-Specific Model 的 损失(带梯度) ##########
+                logger.info(f"\n***** Running Query *****")
+                query_loss_list = []
+                query_loss = torch.tensor(0.0).to(args.device)
                 ## 用当前task的 查询集 计算 Model_i 的loss, 并保存（不在这里做反向传播）
                 query_dataset = self.query_dataset  # 查询集
                 query_dataloader = self.get_test_dataloader(query_dataset)  # 获取查询集的 dataloader
                 if self.is_fsdp_xla_v2_enabled:
                     query_dataloader = tpu_spmd_dataloader(query_dataloader)
+                epoch_dataloader = query_dataloader
 
-                # 在当前task的查询集上用 task-specific 模型计算loss
-                query_loss = self.query_loop(
-                    query_dataloader,
-                    description="Query",
-                    # No point gathering the predictions if there are no metrics, otherwise we defer to self.args.prediction_loss_only
-                    # 如果没有指标，收集预测就没有意义了，否则我们只能听从self.args.prediction_loss_only
-                    # 仅返回 loss
-                    prediction_loss_only=True,
-                    ignore_keys=None,
+                if hasattr(epoch_dataloader, "set_epoch"):
+                    epoch_dataloader.set_epoch(epoch)
+
+                # Reset the past mems state at the beginning of each epoch if necessary.
+                # 重置过去mems状态，在每次epoch开始时
+                # if args.past_index >= 0:
+                #     self._past = None
+
+                steps_in_epoch = (
+                    len(epoch_dataloader)
+                    if len_dataloader is not None
+                    else args.max_steps * args.gradient_accumulation_steps
                 )
+                # self.control = self.callback_handler.on_epoch_begin(args, self.state, self.control)
 
+                if (
+                    epoch == epochs_trained
+                    and resume_from_checkpoint is not None
+                    and steps_trained_in_current_epoch == 0
+                ):
+                    self._load_rng_state(resume_from_checkpoint)
+
+                rng_to_sync = False
+                steps_skipped = 0
+                if steps_trained_in_current_epoch > 0:
+                    # 创建`torch.utils.data.DataLoader`
+                    # 将有效地跳过前几个num_batches。如果原始数据加载器是“StatefulDataLoader”，则不应使用。
+                    epoch_dataloader = skip_first_batches(epoch_dataloader, steps_trained_in_current_epoch)
+                    steps_skipped = steps_trained_in_current_epoch
+                    steps_trained_in_current_epoch = 0
+                    rng_to_sync = True
+
+                step = -1
+                epoch_iterator = iter(epoch_dataloader)
+                # We chunkify the epoch iterator into gradient accumulation steps `n` batches
+                # 我们将epoch迭代器分块为梯度累积步骤`n`批
+                remainder = num_examples % args.gradient_accumulation_steps
+                if remainder == 0:
+                    remainder = args.gradient_accumulation_steps
+                update_step = -1
+                # gradient_accumulation_steps 用于控制在更新模型参数之前累积多少个小批量（mini-batch）的梯度。
+                total_updates = steps_in_epoch // args.gradient_accumulation_steps + 1
+                if args.gradient_accumulation_steps == 1:
+                    total_updates -= 1
+                for _ in range(total_updates):
+                    update_step += 1
+                    num_batches = args.gradient_accumulation_steps if update_step != (total_updates - 1) else remainder
+                    # 获取当前批次的样本和批次中的项目数量
+                    batch_samples, num_items_in_batch = self.get_batch_samples(epoch_iterator, num_batches)
+                    for i, inputs in enumerate(batch_samples):
+                        step += 1
+                        do_sync_step = (step + 1) % args.gradient_accumulation_steps == 0 or (
+                            step + 1
+                        ) == steps_in_epoch
+                        # Since we perform prefetching, we need to manually set sync_gradients
+                        self.accelerator.gradient_state._set_sync_gradients(do_sync_step)
+
+                        # 跟踪输入令牌的数量. 评估模型的性能和资源使用情况时可以使用
+                        # if self.args.include_num_input_tokens_seen:
+                        #     main_input_name = getattr(self.model, "main_input_name", "input_ids")
+                        #     if main_input_name not in inputs:
+                        #         logger.warning(
+                        #             "Tried to track the number of tokens seen, however the current model is "
+                        #             "not configured properly to know what item is the input. To fix this, add "
+                        #             "a `main_input_name` attribute to the model class you are using."
+                        #         )
+                        #     else:
+                        #         # 提取输入令牌的数量
+                        #         input_tokens = inputs[main_input_name].numel()  # numel()函数返回张量中元素的数量。
+                        #         input_tokens = torch.tensor(
+                        #             input_tokens, device=self.args.device, dtype=torch.int64
+                        #         )  # 转换为PyTorch张量
+                        #         self.state.num_input_tokens_seen += (
+                        #             self.accelerator.gather(input_tokens).sum().cpu().item()
+                        #         )  # 累加输入令牌的数量
+                        # if rng_to_sync:
+                        #     self._load_rng_state(resume_from_checkpoint)
+                        #     rng_to_sync = False
+
+                        # Skip past any already trained steps if resuming training
+                        # 跳过任何已经训练过的步骤，如果正在恢复训练
+                        # if steps_trained_in_current_epoch > 0:
+                        #     steps_trained_in_current_epoch -= 1
+                        #     if steps_trained_progress_bar is not None:
+                        #         steps_trained_progress_bar.update(1)
+                        #     if steps_trained_in_current_epoch == 0:
+                        #         self._load_rng_state(resume_from_checkpoint)
+                        #     continue
+                        # elif steps_trained_progress_bar is not None:
+                        #     steps_trained_progress_bar.close()
+                        #     steps_trained_progress_bar = None
+
+                        # if step % args.gradient_accumulation_steps == 0:
+                        #     self.control = self.callback_handler.on_step_begin(args, self.state, self.control)
+
+                        # We explicitly want to avoid relying on `accelerator.accumulate` for generation training
+                        # 我们明确地不想依赖 `accelerator.accumulate` 来进行生成训练
+                        context = (
+                            functools.partial(self.accelerator.no_sync, model=model)
+                            if i != len(batch_samples) - 1
+                            and self.accelerator.distributed_type != DistributedType.DEEPSPEED
+                            else contextlib.nullcontext
+                        )
+                        self.__get_gpu_memory(f"正在计算 query_loss_step")
+                        with context():
+                            """
+                            training_step() 包含模型的正向传播 和 反向更新, 但没有更新参数
+                            这一步应该是用 support_x 和 support_y 来训练该Task的模型
+                            """
+                            # query_loss_step = self.training_step(model, inputs, num_items_in_batch)
+                            query_loss_step = self.training_step_only_forward(model, inputs, num_items_in_batch)
+
+                        if (
+                            args.logging_nan_inf_filter
+                            and not is_torch_xla_available()
+                            and (torch.isnan(query_loss_step) or torch.isinf(query_loss_step))
+                        ):
+                            # 如果损失为nan或inf，只需将之前记录的损失的平均值相加
+                            # if loss is nan or inf simply add the average of previous logged losses
+                            # tr_loss = tr_loss + tr_loss / (1 + self.state.global_step - self._globalstep_last_logged)
+                            pass
+                        else:
+                            if query_loss.device != query_loss_step.device:
+                                raise ValueError(
+                                    f"Calculated loss must be on the original device: {tr_loss.device} but device in use is {query_loss_step.device}"
+                                )
+                            # FIXME: query_loss_step 占用显存过大.
+                            print(
+                                f"query_loss_step 占用: {query_loss_step.element_size() * query_loss_step.nelement() / 1024} KB"
+                            )
+                            # query_loss = query_loss + query_loss  # 这种方式占用显存不大
+                            # query_loss = query_loss + query_loss_step  # 这种方式占用显存太大
+                            query_loss_list.append(query_loss_step)  # 这种方式占用显存太大
+                            del query_loss_step  # 释放显存
+                        print(f"现在运行第 {_} query step")
+                        model.zero_grad()  # 清空梯度
+
+                        # PyTorch/XLA relies on the data loader to insert the mark_step for
+                        # each step. Since we are breaking the loop early, we need to manually
+                        # insert the mark_step here.
+                        if self.control.should_epoch_stop or self.control.should_training_stop:
+                            if is_torch_xla_available():
+                                xm.mark_step()
+                            break
+                    # We also need to break out of the nested loop
+                    # 我们也需要从嵌套循环中跳出
+                    if self.control.should_epoch_stop or self.control.should_training_stop:
+                        if is_torch_xla_available():
+                            xm.mark_step()
+                        break
+                if step < 0:
+                    logger.warning(
+                        "======= query ==========="
+                        "There seems not to be a single sample in your epoch_iterator, stopping training at step"
+                        f" {self.state.global_step}! This is expected if you're using an IterableDataset and set"
+                        f" num_steps ({max_steps}) higher than the number of available samples."
+                    )
+                    # 输出中文
+                    logger.warning(
+                        f"======= query ===========\n似乎你的epoch_iterator中没有单个样本，在步骤{self.state.global_step}处停止训练！如果你使用的是IterableDataset，并且将num_steps ({max_steps})设置得高于可用样本的数量，这是预期的。"
+                    )
+                    self.control.should_training_stop = True
+
+                logger.info_rank0(f"{'='*10}> 完成第 {epoch} 个Epoch的第 {maml_task} 个任务的support训练")
+
+                self.__get_gpu_memory(f"完成第 {epoch} 个Epoch的第 {maml_task} 个任务的support训练")
+
+                self.accelerator.free_memory()  # 释放显存
+                torch.cuda.empty_cache()  # 释放显存
+                self.__get_gpu_memory(f"完成第 {epoch} 个Epoch的第 {maml_task} 个任务的support训练, 并释放显存")
+
+                query_loss = torch.stack(query_loss_list).mean()
+                # FIXME 这种方式也会导致爆显存，当task数量多了之后
                 task_losses.append(query_loss)  # 把当前task的loss保存下来
+                ################### 下面部分被注释 ##########################
+                ##### 下面抄 support 部分的逻辑 #####
+                if False:
+                    query_loss_list = []
+                    query_iterator = iter(query_dataloader)
+                    # for 循环，把 query_iterator 中的数据都取出来。
+                    for idx, inputs in enumerate(query_iterator):
+                        self.__get_gpu_memory(f"正在执行 Query 的第 {idx}/{len(query_dataloader)} 个batch")
+                        inputs = self.accelerator.prepare(inputs)
+
+                        with context():
+                            """
+                            training_step() 包含模型的正向传播 和 反向更新, 但没有更新参数
+                            这一步应该是用 support_x 和 support_y 来训练该Task的模型
+                            """
+                            query_loss_step = self.training_step_only_forward(model, inputs, num_items_in_batch=1)
+                        if (
+                            args.logging_nan_inf_filter
+                            and not is_torch_xla_available()
+                            and (torch.isnan(tr_loss_step) or torch.isinf(tr_loss_step))
+                        ):
+                            # 如果损失为nan或inf，不处理
+                            pass
+                        else:
+                            query_loss_list.append(query_loss_step)
+                    query_loss = torch.stack(query_loss_list).mean()
+                    task_losses.append(query_loss)  # 把当前task的loss保存下来
+                ################### 上部分被注释 ##########################
+                ################### 下面部分被注释 ##########################
+                if False:
+                    # 在当前task的查询集上用 task-specific 模型计算loss
+                    query_loss = self.query_loop(
+                        query_dataloader,
+                        description="Query",
+                        # No point gathering the predictions if there are no metrics, otherwise we defer to self.args.prediction_loss_only
+                        # 如果没有指标，收集预测就没有意义了，否则我们只能听从self.args.prediction_loss_only
+                        # 仅返回 loss
+                        prediction_loss_only=True,
+                        ignore_keys=None,
+                    )
+
+                    task_losses.append(query_loss)  # 把当前task的loss保存下来
+                ################### 上部分被注释 ##########################
+                ######### 计算 Task-Specific Model 的 损失(带梯度) ##########
 
                 self.control = self.callback_handler.on_epoch_end(args, self.state, self.control)
                 self._maybe_log_save_evaluate(tr_loss, grad_norm, model, trial, epoch, ignore_keys_for_eval, start_time)
@@ -1362,6 +1584,112 @@ class MAMLSeq2SeqTrainer(CustomSeq2SeqTrainer):
         logger.info(f">>>>>>>>>>>>>>>>>>In prediction_step: {loss.requires_grad=}")
 
         return loss, generated_tokens, result_labels
+
+    @override
+    def get_test_dataloader(self, test_dataset: Dataset) -> DataLoader:
+        """
+        Returns the test [`~torch.utils.data.DataLoader`].
+
+        Subclass and override this method if you want to inject some custom behavior.
+
+        Args:
+            test_dataset (`torch.utils.data.Dataset`, *optional*):
+                The test dataset to use. If it is a [`~datasets.Dataset`], columns not accepted by the
+                `model.forward()` method are automatically removed. It must implement `__len__`.
+        """
+        data_collator = self.data_collator
+
+        if is_datasets_available() and isinstance(test_dataset, datasets.Dataset):
+            test_dataset = self._remove_unused_columns(test_dataset, description="test")
+        else:
+            data_collator = self._get_collator_with_removed_columns(data_collator, description="test")
+
+        dataloader_params = {
+            # "batch_size": self.args.eval_batch_size,
+            "batch_size": 1,
+            "collate_fn": data_collator,
+            "num_workers": self.args.dataloader_num_workers,
+            "pin_memory": self.args.dataloader_pin_memory,
+            "persistent_workers": self.args.dataloader_persistent_workers,
+        }
+
+        if not isinstance(test_dataset, torch.utils.data.IterableDataset):
+            dataloader_params["sampler"] = self._get_eval_sampler(test_dataset)
+            dataloader_params["drop_last"] = self.args.dataloader_drop_last
+            dataloader_params["prefetch_factor"] = self.args.dataloader_prefetch_factor
+
+        # We use the same batch_size as for eval.
+        return self.accelerator.prepare(DataLoader(test_dataset, **dataloader_params))
+
+    def training_step_only_forward(
+        self, model: nn.Module, inputs: Dict[str, Union[torch.Tensor, Any]], num_items_in_batch=None
+    ) -> torch.Tensor:
+        """
+        抄的 Trainer.training_step
+        对一批输入执行训练步骤。只有正向传播
+        Args:
+            model (`nn.Module`):
+                The model to train.
+            inputs (`Dict[str, Union[torch.Tensor, Any]]`):
+                The inputs and targets of the model.
+
+                The dictionary will be unpacked before being fed to the model. Most models expect the targets under the
+                argument `labels`. Check your model's documentation for all accepted arguments.
+                字典在放入模型之前将被解包。大多数模型都期望在参数`labels`下找到targets。
+                检查模型文档中所有可接受的参数。
+
+        Return:
+            `torch.Tensor`: The tensor with training loss on this batch.
+        """
+        model.train()  # 将模型设置为训练模式
+        if hasattr(self.optimizer, "train") and callable(self.optimizer.train):
+            self.optimizer.train()  # 将优化器设置为训练模式
+
+        inputs = self._prepare_inputs(inputs)
+        if is_sagemaker_mp_enabled():
+            # 从 smp_options 变量中获取特定于 sagemaker 的 mp 参数。
+            print("执行到了 MAMLSeq2SeqTrainer.training_step 的 is_sagemaker_mp_enabled() 中的 if 语句")
+            loss_mb = smp_forward_backward(model, inputs, self.args.gradient_accumulation_steps)
+            return loss_mb.reduce_mean().detach().to(self.args.device)
+
+        # ​上下文管理器​​，用于​​在计算损失时自动管理混合精度训练、梯度累积、分布式训练等环境配置​​。
+        with self.compute_loss_context_manager():
+            # 正向传播过程
+            loss = self.compute_loss(model, inputs, num_items_in_batch=num_items_in_batch)
+
+        del inputs  # 释放内存
+
+        # 如果设置了torch_empty_cache_steps参数，并且当前全局步数是torch_empty_cache_steps的倍数
+        if (
+            self.args.torch_empty_cache_steps is not None
+            and self.state.global_step % self.args.torch_empty_cache_steps == 0
+        ):
+            # 如果是torch_xpu设备
+            if is_torch_xpu_available():
+                torch.xpu.empty_cache()
+            # 如果是torch_mlu设备
+            elif is_torch_mlu_available():
+                torch.mlu.empty_cache()
+            # 如果是torch_musa设备
+            elif is_torch_musa_available():
+                torch.musa.empty_cache()
+            # 如果是torch_npu设备
+            elif is_torch_npu_available():
+                torch.npu.empty_cache()
+            # 如果是torch_mps设备，并且版本大于等于2.0
+            elif is_torch_mps_available(min_version="2.0"):
+                torch.mps.empty_cache()
+            # 否则，使用torch.cuda.empty_cache()
+            else:
+                torch.cuda.empty_cache()
+
+        torch.cuda.empty_cache()  # 释放内存
+
+        # 多GPU训练
+        if self.args.n_gpu > 1:
+            loss = loss.mean()  # mean() to average on multi-gpu parallel training
+
+        return loss
 
 
 if __name__ == "__main__":
