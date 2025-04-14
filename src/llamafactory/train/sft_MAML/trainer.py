@@ -1131,7 +1131,10 @@ class MAMLSeq2SeqTrainer(CustomSeq2SeqTrainer):
             ## Prediction step
             # prediction_loss_only == True 的话, losses, logits, labels
             # 会调用 CustomSeq2SeqTrainer.prediction_step
+            # losses.requires_grad=False 没有梯度保留
             losses, logits, labels = self.prediction_step(model, inputs, prediction_loss_only, ignore_keys=ignore_keys)
+            logger.info(f">>>>>>>>>>>>>>>>>> {losses=} <<<<<<<<<<<<<<<<<<<<")
+            logger.info(f">>>>>>>>>>>>>>>>>> {losses.requires_grad=} <<<<<<<<<<<<<<<<<<<<")
             main_input_name = getattr(self.model, "main_input_name", "input_ids")
             inputs_decode = (
                 self._prepare_input(inputs[main_input_name]) if "inputs" in args.include_for_metrics else None
@@ -1244,6 +1247,121 @@ class MAMLSeq2SeqTrainer(CustomSeq2SeqTrainer):
         query_dataset = shuffled_dataset.select(range(num_shots, num_shots + num_querys))
 
         return support_dataset, query_dataset
+
+    # @override
+    def __prediction_step(
+        self,
+        model: "torch.nn.Module",
+        inputs: Dict[str, Union["torch.Tensor", Any]],
+        prediction_loss_only: bool,
+        ignore_keys: Optional[List[str]] = None,
+        **gen_kwargs,
+    ) -> Tuple[Optional[float], Optional["torch.Tensor"], Optional["torch.Tensor"]]:
+        r"""
+        Removes the prompt part in the generated tokens.
+
+        Subclass and override to inject custom behavior.
+        """
+        if self.args.predict_with_generate:  # do not pass labels to model when generate
+            # 生成时不将标签传递给模型
+            labels = inputs.pop("labels", None)
+        else:
+            labels = inputs.get("labels")
+
+        result_labels = labels
+        """
+        loss, generated_tokens, _ = super().prediction_step(model, inputs, prediction_loss_only=prediction_loss_only, ignore_keys=ignore_keys, **gen_kwargs)
+        """
+        #########################################
+        has_labels = False if len(self.label_names) == 0 else all(inputs.get(k) is not None for k in self.label_names)
+        # For CLIP-like models capable of returning loss values.
+        # If `return_loss` is not specified or being `None` in `inputs`, we check if the default value of `return_loss`
+        # is `True` in `model.forward`.
+        return_loss = inputs.get("return_loss", None)
+        if return_loss is None:
+            return_loss = self.can_return_loss
+        loss_without_labels = True if len(self.label_names) == 0 and return_loss else False
+
+        inputs = self._prepare_inputs(inputs)
+        if ignore_keys is None:
+            if hasattr(self.model, "config"):
+                ignore_keys = getattr(self.model.config, "keys_to_ignore_at_inference", [])
+            else:
+                ignore_keys = []
+
+        # labels may be popped when computing the loss (label smoothing for instance) so we grab them first.
+        if has_labels or loss_without_labels:
+            labels = nested_detach(tuple(inputs.get(name) for name in self.label_names))
+            if len(labels) == 1:
+                labels = labels[0]
+        else:
+            labels = None
+
+        # with torch.no_grad():
+        if is_sagemaker_mp_enabled():
+            raw_outputs = smp_forward_only(model, inputs)
+            if has_labels or loss_without_labels:
+                if isinstance(raw_outputs, dict):
+                    loss_mb = raw_outputs["loss"]
+                    logits_mb = tuple(v for k, v in raw_outputs.items() if k not in ignore_keys + ["loss"])
+                else:
+                    loss_mb = raw_outputs[0]
+                    logits_mb = raw_outputs[1:]
+
+                # loss = loss_mb.reduce_mean().detach().cpu()
+                loss = loss_mb.reduce_mean()  # 保留梯度
+                logits = smp_nested_concat(logits_mb)
+            else:
+                loss = None
+                if isinstance(raw_outputs, dict):
+                    logits_mb = tuple(v for k, v in raw_outputs.items() if k not in ignore_keys)
+                else:
+                    logits_mb = raw_outputs
+                logits = smp_nested_concat(logits_mb)
+        else:
+            if has_labels or loss_without_labels:
+                # 我的程序会走这一条分支
+                self.__get_gpu_memory("In prediction_step")
+                with self.compute_loss_context_manager():
+                    loss, outputs = self.compute_loss(model, inputs, return_outputs=True)
+                # loss = loss.mean().detach()
+                loss = loss.mean()  # 保留梯度
+
+                if isinstance(outputs, dict):
+                    logits = tuple(v for k, v in outputs.items() if k not in ignore_keys + ["loss"])
+                else:
+                    logits = outputs[1:]
+            else:
+                loss = None
+                with self.compute_loss_context_manager():
+                    outputs = model(**inputs)
+                if isinstance(outputs, dict):
+                    logits = tuple(v for k, v in outputs.items() if k not in ignore_keys)
+                else:
+                    logits = outputs
+                # TODO: this needs to be fixed and made cleaner later.
+                if self.args.past_index >= 0:
+                    self._past = outputs[self.args.past_index - 1]
+
+        if prediction_loss_only:
+            # return (loss, None, None)
+            loss, logits, labels = loss, None, None
+
+        logits = nested_detach(logits)
+        if len(logits) == 1:
+            logits = logits[0]
+        # return (loss, logits, labels)
+
+        ########################################
+        generated_tokens = logits
+        if generated_tokens is not None and self.args.predict_with_generate:
+            generated_tokens[:, : inputs["input_ids"].size(-1)] = self.processing_class.pad_token_id
+            generated_tokens = generated_tokens.contiguous()
+
+        logger.info(f">>>>>>>>>>>>>>>>>>In prediction_step: {loss=}")
+        logger.info(f">>>>>>>>>>>>>>>>>>In prediction_step: {loss.requires_grad=}")
+
+        return loss, generated_tokens, result_labels
 
 
 if __name__ == "__main__":
