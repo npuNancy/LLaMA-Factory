@@ -575,8 +575,10 @@ class MAMLSeq2SeqTrainer(CustomSeq2SeqTrainer):
         self.state.init_training_references(self, train_dataloader, max_steps, num_train_epochs, trial)
 
         # tr_loss is a tensor to avoid synchronization of TPUs through .item()
+        # tr_loss 是一个张量，用于避免TPUs通过 .item() 同步
         tr_loss = torch.tensor(0.0).to(args.device)
         # _total_loss_scalar is updated everytime .item() has to be called on tr_loss and stores the sum of all losses
+        # _total_loss_scalar 是每次调用 tr_loss 的 .item() 时都会更新，并存储所有损失的总和
         self._total_loss_scalar = 0.0
         self._globalstep_last_logged = self.state.global_step
         model.zero_grad()  # 清空梯度
@@ -594,7 +596,7 @@ class MAMLSeq2SeqTrainer(CustomSeq2SeqTrainer):
             # 每个任务的数据量: N-shot, K-query
             """
             logger.info_rank0(f"{'='*10}> 当前在第 {epoch} 个Epoch.")
-            task_losses = []  # 用于存放每个任务的loss, 最后用于更新Model
+            task_losses = []  # 用于存放每个任务的loss(标量), 最后用于更新Model
             self.__get_gpu_memory(f"第 {epoch} 个Epoch, 复制前")
             ############### 更新的代码 ###########
             ## 这里保存一份当前模型的参数，用于给后面 Task-Specific Model 初始化
@@ -604,6 +606,11 @@ class MAMLSeq2SeqTrainer(CustomSeq2SeqTrainer):
             meta_optimizer = copy.deepcopy(self.optimizer.state_dict())
             ############### 更新的代码 ###########
             self.__get_gpu_memory(f"第 {epoch} 个Epoch, 复制后")
+
+            self.accelerator.free_memory()  # 释放显存
+            torch.cuda.empty_cache()  # 释放显存
+
+            self.__get_gpu_memory(f"第 {epoch} 个Epoch, 释放显存后")
 
             for maml_task in range(self.maml_num_tasks):
                 logger.info_rank0(f"{'='*10}> 当前在第 {epoch} 个Epoch的第 {maml_task} 个任务.")
@@ -840,6 +847,10 @@ class MAMLSeq2SeqTrainer(CustomSeq2SeqTrainer):
                 logger.info_rank0(f"{'='*10}> 完成第 {epoch} 个Epoch的第 {maml_task} 个任务的support训练")
 
                 self.__get_gpu_memory(f"完成第 {epoch} 个Epoch的第 {maml_task} 个任务的support训练")
+
+                self.accelerator.free_memory()  # 释放显存
+                torch.cuda.empty_cache()  # 释放显存
+                self.__get_gpu_memory(f"完成第 {epoch} 个Epoch的第 {maml_task} 个任务的support训练, 并释放显存")
                 ################# END 这里完成了当前task的训练 END ##########
 
                 ## 用当前task的 查询集 计算 Model_i 的loss, 并保存（不在这里做反向传播）
@@ -864,6 +875,9 @@ class MAMLSeq2SeqTrainer(CustomSeq2SeqTrainer):
                 self.control = self.callback_handler.on_epoch_end(args, self.state, self.control)
                 self._maybe_log_save_evaluate(tr_loss, grad_norm, model, trial, epoch, ignore_keys_for_eval, start_time)
                 self.__get_gpu_memory(f"完成第 {epoch} 个Epoch的第 {maml_task} 个任务的query推理")
+                self.accelerator.free_memory()  # 释放显存
+                torch.cuda.empty_cache()  # 释放显存
+                self.__get_gpu_memory(f"完成第 {epoch} 个Epoch的第 {maml_task} 个任务的query推理, 并释放显存")
 
                 if DebugOption.TPU_METRICS_DEBUG in self.args.debug:
                     if is_torch_xla_available():
@@ -883,7 +897,7 @@ class MAMLSeq2SeqTrainer(CustomSeq2SeqTrainer):
             ################################
             # 完成了1个epoch内所有Task的训练 #
             ################################
-            logger.info_rank0(f"{'='*10}> 完成第 {epoch} 个Epoch内所有任务的训练, {len(self.maml_num_tasks)=}.")
+            logger.info_rank0(f"{'='*10}> 完成第 {epoch} 个Epoch内所有任务的训练, {self.maml_num_tasks=}.")
 
             self.__get_gpu_memory(f"完成第 {epoch} 个Epoch内所有任务的训练时， 还未还原Model和Optimizer")
             ############## 还原回 Epoch 开始时的 Model 和 Optimizer ##############
@@ -894,7 +908,7 @@ class MAMLSeq2SeqTrainer(CustomSeq2SeqTrainer):
             ## 对 model 进行梯度更新
             # 计算所有task的loss的平均值
             assert len(task_losses) != 0, "task_losses的长度不能为0"
-            avg_loss = sum(task_losses) / len(task_losses)
+            avg_loss = torch.stack(task_losses).mean()  # 将task_losses转换为张量,并计算平均值
             loss = avg_loss
 
             ############ 这部分是借鉴的 training_step ##############
@@ -1065,7 +1079,7 @@ class MAMLSeq2SeqTrainer(CustomSeq2SeqTrainer):
             logger.info("  Num examples: Unknown")
         logger.info(f"  Batch size = {batch_size}")
 
-        model.eval()
+        model.eval()  # 将模型设置为评估模式
         if hasattr(self.optimizer, "eval") and callable(self.optimizer.eval):
             self.optimizer.eval()
 
@@ -1169,17 +1183,14 @@ class MAMLSeq2SeqTrainer(CustomSeq2SeqTrainer):
             # Clean the state at the end of the evaluation loop
             delattr(self, "_past")
 
+        result_loss = all_losses.tensors.mean()
+
         # Gather all remaining tensors and put them back on the CPU
+        # 收集所有剩余的张量并将它们放回CPU
         all_losses = all_losses.get_arrays()  # 将损失值收集到 all_losses 容器中，并在最后计算平均损失
         all_preds = all_preds.get_arrays()
         all_labels = all_labels.get_arrays()
         all_inputs = all_inputs.get_arrays()
-
-        result_loss = None
-        if isinstance(all_losses, list) and all_losses:
-            result_loss = np.concatenate(all_losses).mean().item()
-        elif isinstance(all_losses, np.ndarray):
-            result_loss = all_losses.mean().item()
 
         return result_loss
 
