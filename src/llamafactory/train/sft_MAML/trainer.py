@@ -580,8 +580,10 @@ class MAMLSeq2SeqTrainer(CustomSeq2SeqTrainer):
             # 遍历每个用户（任务）
             # 每个任务的数据量: N-shot, K-query
             """
+            logger.info_rank0(f"{'='*10}> 当前在第 {epoch} 个Epoch.")
             task_losses = []  # 用于存放每个任务的loss, 最后用于更新Model
             for maml_task in range(self.maml_num_tasks):
+                logger.info_rank0(f"{'='*10}> 当前在第 {epoch} 个Epoch的第 {maml_task} 个任务.")
 
                 # --- 内循环：在支持集上做几步梯度更新 ---
                 # 克隆一份模型供内循环使用，防止直接改动 model 参数
@@ -647,10 +649,14 @@ class MAMLSeq2SeqTrainer(CustomSeq2SeqTrainer):
                     total_updates -= 1
                 for _ in range(total_updates):
                     update_step += 1
+                    logger.info_rank0(
+                        f"{'='*10}> 当前在第 {epoch} 个Epoch的第 {maml_task} 个任务的第 {update_step} update_step."
+                    )
                     num_batches = args.gradient_accumulation_steps if update_step != (total_updates - 1) else remainder
                     batch_samples, num_items_in_batch = self.get_batch_samples(epoch_iterator, num_batches)
                     for i, inputs in enumerate(batch_samples):
                         step += 1
+                        logger.info_rank0(f"{'='*10}> 当前在第 {epoch} 个Epoch的第 {maml_task} 个任务的第 {step} Step.")
                         do_sync_step = (step + 1) % args.gradient_accumulation_steps == 0 or (
                             step + 1
                         ) == steps_in_epoch
@@ -806,6 +812,7 @@ class MAMLSeq2SeqTrainer(CustomSeq2SeqTrainer):
                     )
                     self.control.should_training_stop = True
 
+                logger.info_rank0(f"{'='*10}> 完成第 {epoch} 个Epoch 的 第 {maml_task} 个任务的训练")
                 ################# END 这里完成了当前task的训练 END ##########
 
                 ## 用当前task的 查询集 计算 Model_i 的loss, 并保存（不在这里做反向传播）
@@ -860,6 +867,7 @@ class MAMLSeq2SeqTrainer(CustomSeq2SeqTrainer):
             ################################
             # 完成了1个epoch内所有Task的训练 #
             ################################
+            logger.info_rank0(f"{'='*10}> 完成第 {epoch} 个Epoch内所有任务的训练, {len(self.maml_num_tasks)=}.")
 
             ## 对 model 进行梯度更新
             # 计算所有task的loss的平均值
