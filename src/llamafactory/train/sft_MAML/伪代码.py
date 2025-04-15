@@ -256,3 +256,168 @@ def fun():
     self.optimizer.zero_grad()
     self.accelerator.backward(loss_avg)
     self.optimizer.step()
+
+
+"""
+下面是现在用的伪代码
+"""
+import copy
+import torch
+import torch.nn as nn
+import torch.optim as optim
+
+
+def MAML_way_1():
+    # 1. 生成随机数据（100个样本）
+    spt_inputs = [torch.randn(100, 1) * 10 for i in range(10)]  # 输入特征（-10到10的随机数）
+    spt_labels = [
+        3 * spt_inputs + 2 + torch.randn(100, 1) * 2 for i in range(10)
+    ]  # 带噪声的线性关系（真实参数w=3，b=2）
+
+    qry_inputs = [torch.randn(100, 1) * 10 for i in range(10)]  # 输入特征（-10到10的随机数）
+    qry_labels = [
+        3 * spt_inputs + 2 + torch.randn(100, 1) * 2 for i in range(10)
+    ]  # 带噪声的线性关系（真实参数w=3，b=2）
+
+    # 2. 定义单层线性模型
+    meta_model = nn.Sequential(nn.Linear(1, 1))  # 输入维度1，输出维度1
+
+    # 3. 定义损失函数和优化器
+    meta_optimizer = optim.SGD(meta_model.parameters(), lr=0.01)  # 随机梯度下降
+    criterion = nn.MSELoss()  # 均方误差损失
+
+    for epoch in range(num_epoch := 10):
+
+        for task in range(num_task := 2):
+            model = copy.deepcopy(meta_model)
+            optimizer = optim.SGD(model.parameters(), lr=0.01)
+
+            # 用 support set 训练模型
+            for i in range(num_inner_steps := 10):
+                for spt_input_idx in range(len(spt_inputs)):
+                    spt_input = spt_inputs[spt_input_idx]
+                    spt_label = spt_labels[spt_input_idx]
+
+                    optimizer.zero_grad()  # 梯度清零
+                    outputs = model(spt_input)  # 正向传播
+                    support_loss = criterion(outputs, spt_label)  # 计算损失
+                    support_loss.backward()  # 反向传播，计算梯度
+                    optimizer.step()  # 更新参数
+
+            # 用 query set 测试模型
+            for qry_input_idx in range(len(qry_inputs)):
+                qry_input = qry_inputs[qry_input_idx]
+                qry_label = qry_labels[qry_input_idx]
+                outputs = model(qry_input)  # 正向传播
+                query_loss = criterion(outputs, qry_label)  # query_loss带有计算图
+
+                # 用 query_loss 更新 meta-model 参数
+                query_loss = query_loss / len(qry_inputs)
+                query_loss.backward()  # 反向传播，计算梯度
+        meta_optimizer.step()  # 更新参数
+        meta_optimizer.zero_grad()  # 梯度清零
+
+
+def MAML_way_2():
+    # 1. 生成随机数据（100个样本）
+    spt_inputs = [torch.randn(100, 1) * 10 for i in range(10)]  # 输入特征（-10到10的随机数）
+    spt_labels = [
+        3 * spt_inputs + 2 + torch.randn(100, 1) * 2 for i in range(10)
+    ]  # 带噪声的线性关系（真实参数w=3，b=2）
+
+    qry_inputs = [torch.randn(100, 1) * 10 for i in range(10)]  # 输入特征（-10到10的随机数）
+    qry_labels = [
+        3 * spt_inputs + 2 + torch.randn(100, 1) * 2 for i in range(10)
+    ]  # 带噪声的线性关系（真实参数w=3，b=2）
+
+    # 2. 定义单层线性模型
+    meta_model = nn.Sequential(nn.Linear(1, 1))  # 输入维度1，输出维度1
+
+    # 3. 定义损失函数和优化器
+    meta_optimizer = optim.SGD(meta_model.parameters(), lr=0.01)  # 随机梯度下降
+    criterion = nn.MSELoss()  # 均方误差损失
+
+    for epoch in range(num_epoch := 10):
+
+        for task in range(num_task := 2):
+            model = copy.deepcopy(meta_model)
+            optimizer = optim.SGD(model.parameters(), lr=0.01)
+
+            # 用 support set 训练模型
+            for i in range(num_inner_steps := 10):
+                for spt_input_idx in range(len(spt_inputs)):
+                    spt_input = spt_inputs[spt_input_idx]
+                    spt_label = spt_labels[spt_input_idx]
+
+                    optimizer.zero_grad()  # 梯度清零
+                    outputs = model(spt_input)  # 正向传播
+                    support_loss = criterion(outputs, spt_label)  # 计算损失
+                    support_loss.backward()  # 反向传播，计算梯度
+                    optimizer.step()  # 更新参数
+
+            # 用 query set 测试模型
+            losses = []
+            for qry_input_idx in range(len(qry_inputs)):
+                qry_input = qry_inputs[qry_input_idx]
+                qry_label = qry_labels[qry_input_idx]
+                outputs = model(qry_input)  # 正向传播
+                query_loss = criterion(outputs, qry_label)  # query_loss带有计算图
+                losses.append(query_loss)
+
+            # 用 losses 更新 meta-model 参数
+            query_loss = torch.stack(losses).mean() / num_task
+            query_loss.backward()  # 反向传播，计算梯度
+        meta_optimizer.step()  # 更新参数
+        meta_optimizer.zero_grad()  # 梯度清零
+
+
+def MAML_way_3():
+    # 1. 生成随机数据（100个样本）
+    spt_inputs = [torch.randn(100, 1) * 10 for i in range(10)]  # 输入特征（-10到10的随机数）
+    spt_labels = [
+        3 * spt_inputs + 2 + torch.randn(100, 1) * 2 for i in range(10)
+    ]  # 带噪声的线性关系（真实参数w=3，b=2）
+
+    qry_inputs = [torch.randn(100, 1) * 10 for i in range(10)]  # 输入特征（-10到10的随机数）
+    qry_labels = [
+        3 * spt_inputs + 2 + torch.randn(100, 1) * 2 for i in range(10)
+    ]  # 带噪声的线性关系（真实参数w=3，b=2）
+
+    # 2. 定义单层线性模型
+    meta_model = nn.Sequential(nn.Linear(1, 1))  # 输入维度1，输出维度1
+
+    # 3. 定义损失函数和优化器
+    meta_optimizer = optim.SGD(meta_model.parameters(), lr=0.01)  # 随机梯度下降
+    criterion = nn.MSELoss()  # 均方误差损失
+
+    for epoch in range(num_epoch := 10):
+        losses = []
+        for task in range(num_task := 2):
+            model = copy.deepcopy(meta_model)
+            optimizer = optim.SGD(model.parameters(), lr=0.01)
+
+            # 用 support set 训练模型
+            for i in range(num_inner_steps := 10):
+                for spt_input_idx in range(len(spt_inputs)):
+                    spt_input = spt_inputs[spt_input_idx]
+                    spt_label = spt_labels[spt_input_idx]
+
+                    optimizer.zero_grad()  # 梯度清零
+                    outputs = model(spt_input)  # 正向传播
+                    support_loss = criterion(outputs, spt_label)  # 计算损失
+                    support_loss.backward()  # 反向传播，计算梯度
+                    optimizer.step()  # 更新参数
+
+            # 用 query set 测试模型
+            for qry_input_idx in range(len(qry_inputs)):
+                qry_input = qry_inputs[qry_input_idx]
+                qry_label = qry_labels[qry_input_idx]
+                outputs = model(qry_input)  # 正向传播
+                query_loss = criterion(outputs, qry_label)  # query_loss带有计算图
+                losses.append(query_loss)
+
+        # 用 losses 更新 meta-model 参数
+        query_loss = torch.stack(losses).mean()
+        query_loss.backward()  # 反向传播，计算梯度
+        meta_optimizer.step()  # 更新参数
+        meta_optimizer.zero_grad()  # 梯度清零
