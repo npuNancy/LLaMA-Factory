@@ -969,44 +969,6 @@ class MAMLSeq2SeqTrainer(CustomSeq2SeqTrainer):
                             # query_loss_step = self.training_step(model, inputs, num_items_in_batch)
                             query_loss_step = self.training_step_only_forward(model, inputs, num_items_in_batch)
 
-                        # ################ Test 测试 ################
-                        if False:
-                            kwargs = {}
-
-                            # For LOMO optimizers you need to explicitly use the learnign rate
-                            if self.args.optim in [OptimizerNames.LOMO, OptimizerNames.ADALOMO]:
-                                kwargs["learning_rate"] = self._get_learning_rate()
-
-                            # 多GPU训练
-                            if self.args.n_gpu > 1:
-                                loss = loss.mean()  # mean() to average on multi-gpu parallel training
-
-                            if self.use_apex:
-                                # 混合精度训练, 用 自动精度 包裹起来
-                                with amp.scale_loss(loss, self.optimizer) as scaled_loss:
-                                    scaled_loss.backward()
-                            else:
-                                # Finally we need to normalize the loss for reporting
-                                if not self.model_accepts_loss_kwargs and self.compute_loss_func is None:
-                                    loss = loss / self.args.gradient_accumulation_steps
-
-                                # Turning off loss scaling w.r.t. gradient accumulation when DeepSpeed is enabled
-                                # https://github.com/huggingface/transformers/pull/35808
-                                if self.accelerator.distributed_type == DistributedType.DEEPSPEED:
-                                    kwargs["scale_wrt_gas"] = False
-                            # self.accelerator.backward(query_loss_step, **kwargs)  # 反向传播 这是OK的
-                            # self.accelerator.backward(torch.stack([query_loss_step, query_loss_step]).mean(), **kwargs)  # 反向传播 这是OK的
-                            meta_accelerator.backward(query_loss_step, **kwargs)  # 反向传播 这是OK的
-
-                            # model.load_state_dict(meta_params)
-                            # self.optimizer.load_state_dict(meta_optimizer)
-                            # self.accelerator.backward(query_loss_step, **kwargs)
-                            # meta_accelerator.backward(query_loss_step, **kwargs)
-
-                            self.optimizer.step()  # 更新参数
-                            print("到这里是work的")
-                            exit(0)
-                        # ################ Test ################ Test # Test # Test # Test #
                         if (
                             args.logging_nan_inf_filter
                             and not is_torch_xla_available()
@@ -1081,49 +1043,6 @@ class MAMLSeq2SeqTrainer(CustomSeq2SeqTrainer):
                     f"完成第 {epoch} 个Epoch的第 {maml_task} 个任务对 meta_accelerator 的梯度累加, 并释放显存"
                 )
 
-                ################### 下面部分被注释 ##########################
-                ##### 下面抄 support 部分的逻辑 #####
-                if False:
-                    query_loss_list = []
-                    query_iterator = iter(query_dataloader)
-                    # for 循环，把 query_iterator 中的数据都取出来。
-                    for idx, inputs in enumerate(query_iterator):
-                        self.__get_gpu_memory(f"正在执行 Query 的第 {idx}/{len(query_dataloader)} 个batch")
-                        inputs = self.accelerator.prepare(inputs)
-
-                        with context():
-                            """
-                            training_step() 包含模型的正向传播 和 反向更新, 但没有更新参数
-                            这一步应该是用 support_x 和 support_y 来训练该Task的模型
-                            """
-                            query_loss_step = self.training_step_only_forward(model, inputs, num_items_in_batch=1)
-                        if (
-                            args.logging_nan_inf_filter
-                            and not is_torch_xla_available()
-                            and (torch.isnan(tr_loss_step) or torch.isinf(tr_loss_step))
-                        ):
-                            # 如果损失为nan或inf，不处理
-                            pass
-                        else:
-                            query_loss_list.append(query_loss_step)
-                    query_loss = torch.stack(query_loss_list).mean()
-                    task_losses.append(query_loss)  # 把当前task的loss保存下来
-                ################### 上部分被注释 ##########################
-                ################### 下面部分被注释 ##########################
-                if False:
-                    # 在当前task的查询集上用 task-specific 模型计算loss
-                    query_loss = self.query_loop(
-                        query_dataloader,
-                        description="Query",
-                        # No point gathering the predictions if there are no metrics, otherwise we defer to self.args.prediction_loss_only
-                        # 如果没有指标，收集预测就没有意义了，否则我们只能听从self.args.prediction_loss_only
-                        # 仅返回 loss
-                        prediction_loss_only=True,
-                        ignore_keys=None,
-                    )
-
-                    task_losses.append(query_loss)  # 把当前task的loss保存下来
-                ################### 上部分被注释 ##########################
                 ######### 计算 Task-Specific Model 的 损失(带梯度) ##########
 
                 self.control = self.callback_handler.on_epoch_end(args, self.state, self.control)
