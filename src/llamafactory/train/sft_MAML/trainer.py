@@ -606,8 +606,9 @@ class MAMLSeq2SeqTrainer(CustomSeq2SeqTrainer):
             meta_params = copy.deepcopy(model.state_dict())
             # 复制一份 self.optimizer 作为备份
             meta_optimizer = copy.deepcopy(self.optimizer.state_dict())
-            # 复制一个 meta_accelerator
+            # 复制一个 meta_accelerator 和 init_accelerator
             meta_accelerator = copy.deepcopy(self.accelerator)
+            init_accelerator = copy.deepcopy(self.accelerator)
             ############### 更新的代码 ###########
             self.__get_gpu_memory(f"第 {epoch} 个Epoch, 复制后")
 
@@ -631,7 +632,7 @@ class MAMLSeq2SeqTrainer(CustomSeq2SeqTrainer):
                 # 重置优化器状态
                 self.optimizer.state = collections.defaultdict(dict)
                 # 重置加速器状态
-                self.accelerator = meta_accelerator
+                self.accelerator = init_accelerator
                 ############### 更新的代码 ###########
                 self.__get_gpu_memory(f"在第 {epoch} 个Epoch的第 {maml_task} 个任务. Model 初始化后")
 
@@ -1052,14 +1053,12 @@ class MAMLSeq2SeqTrainer(CustomSeq2SeqTrainer):
 
                 self.__get_gpu_memory(f"完成第 {epoch} 个Epoch的第 {maml_task} 个任务的query loss 计算")
 
-                self.accelerator.free_memory()  # 释放显存
-                torch.cuda.empty_cache()  # 释放显存
-                self.__get_gpu_memory(f"完成第 {epoch} 个Epoch的第 {maml_task} 个任务的query loss 计算, 并释放显存")
                 ###################### 计算 Task-Specific Model 的 查询集(query)损失(带梯度) END ####################
 
                 query_loss = torch.stack(query_loss_list).mean()
                 # 直接在这对 meta_accelerator 进行反向传播,累计梯度
                 query_loss = query_loss / self.maml_num_tasks  # 损失归一化
+                del query_loss_list  # 释放显存
 
                 ###### kwargs START ########
                 kwargs = {}
@@ -1075,7 +1074,6 @@ class MAMLSeq2SeqTrainer(CustomSeq2SeqTrainer):
 
                 meta_accelerator.backward(query_loss, **kwargs)
                 del query_loss
-                del query_loss_list
 
                 self.accelerator.free_memory()  # 释放显存
                 torch.cuda.empty_cache()  # 释放显存
@@ -1130,10 +1128,7 @@ class MAMLSeq2SeqTrainer(CustomSeq2SeqTrainer):
 
                 self.control = self.callback_handler.on_epoch_end(args, self.state, self.control)
                 self._maybe_log_save_evaluate(tr_loss, grad_norm, model, trial, epoch, ignore_keys_for_eval, start_time)
-                self.__get_gpu_memory(f"完成第 {epoch} 个Epoch的第 {maml_task} 个任务的query推理")
-                self.accelerator.free_memory()  # 释放显存
-                torch.cuda.empty_cache()  # 释放显存
-                self.__get_gpu_memory(f"完成第 {epoch} 个Epoch的第 {maml_task} 个任务的query推理, 并释放显存")
+                logger.info(f">>>>>>> 完成第 {epoch} 个Epoch的第 {maml_task} 个任务的query推理 <<<<<<<<<")
 
                 if DebugOption.TPU_METRICS_DEBUG in self.args.debug:
                     if is_torch_xla_available():
