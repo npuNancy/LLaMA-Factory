@@ -72,6 +72,143 @@ class MAML(object):
             # 外层 用 loss_avg 更新Model
             loss_avg = np.mean(loss_sum)
 
+    @override
+    def _inner_training_loop(
+        self, batch_size=None, args=None, resume_from_checkpoint=None, trial=None, ignore_keys_for_eval=None
+    ):
+
+        # tr_loss is a tensor to avoid synchronization of TPUs through .item()
+        # tr_loss 是一个张量，用于避免TPUs通过 .item() 同步
+        tr_loss = torch.tensor(0.0).to(args.device)
+
+        model.zero_grad()  # 清空梯度
+        grad_norm: Optional[float] = None
+
+        ## 这是MAML的外层循环
+        ## 这是主要的修改之处
+        for epoch in range(epochs_trained, num_train_epochs):
+            """
+            # 遍历每个用户（任务）
+            # 每个任务的数据量: N-shot, K-query
+            """
+
+            task_losses = []  # 用于存放每个任务的loss(标量), 最后用于更新Model
+
+            ############### 更新的代码 ###########
+            ## 这里保存一份当前模型的参数，用于给后面 Task-Specific Model 初始化
+            # 保存当前模型参数（元参数）作为备份
+            meta_params = copy.deepcopy(model.state_dict())
+            # 复制一份 self.optimizer 作为备份
+            meta_optimizer = copy.deepcopy(self.optimizer.state_dict())
+            # 复制一个 meta_accelerator
+            meta_accelerator = copy.deepcopy(self.accelerator)
+            ############### 更新的代码 ###########
+
+            for maml_task in range(self.maml_num_tasks):
+
+                # --- 内循环：在支持集上做几步梯度更新 ---
+                # 克隆一份模型供内循环使用，防止直接改动 model 参数
+                # 在 MAML 内循环中，使用 model 和 self.optimizer 来训练 task-specific model
+
+                self.__get_gpu_memory(f"在第 {epoch} 个Epoch的第 {maml_task} 个任务. Model 初始化前")
+                ############### 更新的代码 ###########
+                # Task-Specific Model 初始化
+                model.load_state_dict(meta_params)
+                self.optimizer.load_state_dict(meta_optimizer)
+                # 重置优化器状态
+                self.optimizer.state = collections.defaultdict(dict)
+                # 重置加速器状态
+                self.accelerator = meta_accelerator
+                ############### 更新的代码 ###########
+
+                ## 数据加载器
+                self.support_dataset, self.query_dataset = self.process_MAML_dataset(
+                    self.maml_training_dataset_list[maml_task]
+                )
+                self.train_dataset = self.support_dataset  # 第maml_task个任务的 支持集
+                train_dataloader = self.get_train_dataloader()  # 这个函数会读取 self.train_dataset
+                epoch_dataloader = train_dataloader
+
+                #################### 当前task的支持集训练 内循环 START #############################
+                step = -1
+                update_step = -1
+                for i in range(self.maml_inner_epochs):
+                    epoch_iterator = iter(epoch_dataloader)
+                    total_updates = steps_in_epoch // args.gradient_accumulation_steps + 1
+                    for _ in range(total_updates):
+                        update_step += 1
+
+                        # 获取当前批次的样本和批次中的项目数量
+                        batch_samples, num_items_in_batch = self.get_batch_samples(epoch_iterator, num_batches)
+                        for i, inputs in enumerate(batch_samples):
+                            step += 1
+                            # 我们明确地不想依赖 `accelerator.accumulate` 来进行生成训练
+                            context = ()
+                            with context():
+                                """
+                                training_step() 包含模型的正向传播 和 反向更新, 但没有更新参数
+                                这一步应该是用 support_x 和 support_y 来训练该Task的模型
+                                """
+                                tr_loss_step = self.training_step(model, inputs, num_items_in_batch)
+                            tr_loss = tr_loss + tr_loss_step
+
+                            # 正常应该调用optimizer.zero_grad()，防止梯度累加干扰当前批次的计算
+                            # 但梯度累加也可用于模拟大batch训练
+                            self.optimizer.step()  # 更新 task-specific 模型参数
+
+                            model.zero_grad()  # 清空梯度
+                            self.state.global_step += 1
+
+                #################### 当前task的支持集训练 内循环 END ##################################
+
+                ###################### 计算 Task-Specific Model 的 损失(带梯度) START ####################
+                ## 用当前task的 查询集 计算 Model_i 的loss, 并保存（不在这里做反向传播）
+                query_loss_list = []
+                query_dataset = self.query_dataset  # 查询集
+                query_dataloader = self.get_test_dataloader(query_dataset)  # 获取查询集的 dataloader
+
+                epoch_dataloader = query_dataloader
+                step = -1
+                epoch_iterator = iter(epoch_dataloader)
+
+                total_updates = steps_in_epoch // args.gradient_accumulation_steps + 1
+                for _ in range(total_updates):
+                    # 获取当前批次的样本和批次中的项目数量
+                    for i, inputs in enumerate(batch_samples):
+                        step += 1
+
+                        context = ()
+                        with context():
+                            """
+                            training_step() 包含模型的正向传播 和 反向更新, 但没有更新参数
+                            这一步应该是用 support_x 和 support_y 来训练该Task的模型
+                            """
+                            query_loss_step = self.training_step_only_forward(model, inputs, num_items_in_batch)
+
+                        query_loss_list.append(query_loss_step)  # 这种方式占用显存太大
+                        model.zero_grad()  # 清空梯度
+
+                query_loss = torch.stack(query_loss_list).mean()
+                task_losses.append(query_loss)  # 把当前task的loss保存下来
+                ###################### 计算 Task-Specific Model 的 损失(带梯度) START ####################
+
+            ################################
+            # 完成了1个epoch内所有Task的训练 #
+            ################################
+
+            ############## 还原回 Epoch 开始时的 Model 和 Optimizer ##############
+            model.load_state_dict(meta_params)
+            self.optimizer.load_state_dict(meta_optimizer)
+            self.accelerator = meta_accelerator
+
+            ## 对 model 进行梯度更新, 计算所有task的loss的平均值
+            avg_loss = torch.stack(task_losses).mean()  # 将task_losses转换为张量,并计算平均值
+            loss = avg_loss
+
+            self.accelerator.backward(loss, **kwargs)  # 反向传播
+            self.optimizer.step()  # 更新 task-specific 模型参数
+            # self.optimizer.zero_grad() # 清空梯度
+
 
 def fun():
     # 对以一个 epoch
