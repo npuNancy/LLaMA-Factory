@@ -1569,11 +1569,7 @@ class MAMLSeq2SeqTrainer(CustomSeq2SeqTrainer):
                 if self.args.past_index >= 0:
                     self._past = outputs[self.args.past_index - 1]
 
-        if prediction_loss_only:
-            # return (loss, None, None)
-            loss, logits, labels = loss, None, None
 
-        # FIXME: 需要修复
         logits = nested_detach(logits)
         if len(logits) == 1:
             logits = logits[0]
