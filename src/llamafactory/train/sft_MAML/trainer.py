@@ -874,8 +874,6 @@ class MAMLSeq2SeqTrainer(CustomSeq2SeqTrainer):
                         )
                         self.control.should_training_stop = True
 
-                    logger.info_rank0(f"{'='*10}> 完成第 {epoch} 个Epoch的第 {maml_task} 个任务的support训练")
-
                     self.__get_gpu_memory(f"完成第 {epoch} 个Epoch的第 {maml_task} 个任务的support训练")
 
                     self.accelerator.free_memory()  # 释放显存
@@ -998,9 +996,9 @@ class MAMLSeq2SeqTrainer(CustomSeq2SeqTrainer):
                             # query_loss_list.append(query_loss_step)  # 这种方式占用显存太大
 
                             # 直接在这对 meta_accelerator 进行反向传播,累计梯度
-                            query_loss = query_loss / (self.num_querys * self.maml_num_tasks)  # 损失归一化
-                            meta_accelerator.backward(query_loss, **kwargs)
-                            del query_loss
+                            query_loss_step = query_loss_step / (self.num_querys * self.maml_num_tasks)  # 损失归一化
+                            meta_accelerator.backward(query_loss_step, **kwargs)
+                            del query_loss_step
                             self.accelerator.free_memory()  # 释放显存
                             torch.cuda.empty_cache()  # 释放显存
                         model.zero_grad()  # 清空梯度
