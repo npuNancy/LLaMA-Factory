@@ -606,6 +606,8 @@ class MAMLSeq2SeqTrainer(CustomSeq2SeqTrainer):
             meta_params = copy.deepcopy(model.state_dict())
             # 复制一份 self.optimizer 作为备份
             meta_optimizer = copy.deepcopy(self.optimizer.state_dict())
+            # 复制一个 meta_accelerator
+            meta_accelerator = copy.deepcopy(self.accelerator)
             ############### 更新的代码 ###########
             self.__get_gpu_memory(f"第 {epoch} 个Epoch, 复制后")
 
@@ -628,6 +630,8 @@ class MAMLSeq2SeqTrainer(CustomSeq2SeqTrainer):
                 self.optimizer.load_state_dict(meta_optimizer)
                 # 重置优化器状态
                 self.optimizer.state = collections.defaultdict(dict)
+                # 重置加速器状态
+                self.accelerator = meta_accelerator
                 ############### 更新的代码 ###########
                 self.__get_gpu_memory(f"在第 {epoch} 个Epoch的第 {maml_task} 个任务. Model 初始化后")
 
@@ -947,44 +951,6 @@ class MAMLSeq2SeqTrainer(CustomSeq2SeqTrainer):
                         # Since we perform prefetching, we need to manually set sync_gradients
                         self.accelerator.gradient_state._set_sync_gradients(do_sync_step)
 
-                        # 跟踪输入令牌的数量. 评估模型的性能和资源使用情况时可以使用
-                        # if self.args.include_num_input_tokens_seen:
-                        #     main_input_name = getattr(self.model, "main_input_name", "input_ids")
-                        #     if main_input_name not in inputs:
-                        #         logger.warning(
-                        #             "Tried to track the number of tokens seen, however the current model is "
-                        #             "not configured properly to know what item is the input. To fix this, add "
-                        #             "a `main_input_name` attribute to the model class you are using."
-                        #         )
-                        #     else:
-                        #         # 提取输入令牌的数量
-                        #         input_tokens = inputs[main_input_name].numel()  # numel()函数返回张量中元素的数量。
-                        #         input_tokens = torch.tensor(
-                        #             input_tokens, device=self.args.device, dtype=torch.int64
-                        #         )  # 转换为PyTorch张量
-                        #         self.state.num_input_tokens_seen += (
-                        #             self.accelerator.gather(input_tokens).sum().cpu().item()
-                        #         )  # 累加输入令牌的数量
-                        # if rng_to_sync:
-                        #     self._load_rng_state(resume_from_checkpoint)
-                        #     rng_to_sync = False
-
-                        # Skip past any already trained steps if resuming training
-                        # 跳过任何已经训练过的步骤，如果正在恢复训练
-                        # if steps_trained_in_current_epoch > 0:
-                        #     steps_trained_in_current_epoch -= 1
-                        #     if steps_trained_progress_bar is not None:
-                        #         steps_trained_progress_bar.update(1)
-                        #     if steps_trained_in_current_epoch == 0:
-                        #         self._load_rng_state(resume_from_checkpoint)
-                        #     continue
-                        # elif steps_trained_progress_bar is not None:
-                        #     steps_trained_progress_bar.close()
-                        #     steps_trained_progress_bar = None
-
-                        # if step % args.gradient_accumulation_steps == 0:
-                        #     self.control = self.callback_handler.on_step_begin(args, self.state, self.control)
-
                         # We explicitly want to avoid relying on `accelerator.accumulate` for generation training
                         # 我们明确地不想依赖 `accelerator.accumulate` 来进行生成训练
                         context = (
@@ -1001,7 +967,44 @@ class MAMLSeq2SeqTrainer(CustomSeq2SeqTrainer):
                             """
                             # query_loss_step = self.training_step(model, inputs, num_items_in_batch)
                             query_loss_step = self.training_step_only_forward(model, inputs, num_items_in_batch)
+                        # ################ Test 测试 ################
+                        if False:
+                            kwargs = {}
 
+                            # For LOMO optimizers you need to explicitly use the learnign rate
+                            if self.args.optim in [OptimizerNames.LOMO, OptimizerNames.ADALOMO]:
+                                kwargs["learning_rate"] = self._get_learning_rate()
+
+                            # 多GPU训练
+                            if self.args.n_gpu > 1:
+                                loss = loss.mean()  # mean() to average on multi-gpu parallel training
+
+                            if self.use_apex:
+                                # 混合精度训练, 用 自动精度 包裹起来
+                                with amp.scale_loss(loss, self.optimizer) as scaled_loss:
+                                    scaled_loss.backward()
+                            else:
+                                # Finally we need to normalize the loss for reporting
+                                if not self.model_accepts_loss_kwargs and self.compute_loss_func is None:
+                                    loss = loss / self.args.gradient_accumulation_steps
+
+                                # Turning off loss scaling w.r.t. gradient accumulation when DeepSpeed is enabled
+                                # https://github.com/huggingface/transformers/pull/35808
+                                if self.accelerator.distributed_type == DistributedType.DEEPSPEED:
+                                    kwargs["scale_wrt_gas"] = False
+                            # self.accelerator.backward(query_loss_step, **kwargs)  # 反向传播 这是OK的
+                            # self.accelerator.backward(torch.stack([query_loss_step, query_loss_step]).mean(), **kwargs)  # 反向传播 这是OK的
+                            meta_accelerator.backward(query_loss_step, **kwargs)  # 反向传播 这是OK的
+
+                            # model.load_state_dict(meta_params)
+                            # self.optimizer.load_state_dict(meta_optimizer)
+                            # self.accelerator.backward(query_loss_step, **kwargs)
+                            # meta_accelerator.backward(query_loss_step, **kwargs)
+
+                            self.optimizer.step()  # 更新参数
+                            print("到这里是work的")
+                            exit(0)
+                        # ################ Test ################ Test # Test # Test # Test #
                         if (
                             args.logging_nan_inf_filter
                             and not is_torch_xla_available()
@@ -1017,14 +1020,12 @@ class MAMLSeq2SeqTrainer(CustomSeq2SeqTrainer):
                                     f"Calculated loss must be on the original device: {tr_loss.device} but device in use is {query_loss_step.device}"
                                 )
                             # FIXME: query_loss_step 占用显存过大.
-                            print(
-                                f"query_loss_step 占用: {query_loss_step.element_size() * query_loss_step.nelement() / 1024} KB"
-                            )
+                            # print(f"query_loss_step 占用: {query_loss_step.element_size() * query_loss_step.nelement() / 1024} KB")
                             # query_loss = query_loss + query_loss  # 这种方式占用显存不大
                             # query_loss = query_loss + query_loss_step  # 这种方式占用显存太大
                             query_loss_list.append(query_loss_step)  # 这种方式占用显存太大
-                            del query_loss_step  # 释放显存
-                        print(f"现在运行第 {_} query step")
+                            # del query_loss_step  # 释放显存
+                        print(f"现在运行第 {step+1} query step")
                         model.zero_grad()  # 清空梯度
 
                         # PyTorch/XLA relies on the data loader to insert the mark_step for
@@ -1140,6 +1141,7 @@ class MAMLSeq2SeqTrainer(CustomSeq2SeqTrainer):
             ############## 还原回 Epoch 开始时的 Model 和 Optimizer ##############
             model.load_state_dict(meta_params)
             self.optimizer.load_state_dict(meta_optimizer)
+            self.accelerator = meta_accelerator
             self.__get_gpu_memory(f"完成第 {epoch} 个Epoch内所有任务的训练时， 还原回Epoch开始时的Model和Optimizer")
 
             ## 对 model 进行梯度更新
@@ -1168,6 +1170,7 @@ class MAMLSeq2SeqTrainer(CustomSeq2SeqTrainer):
                 每个小批次计算梯度并累积起来，最后将累积的梯度用于更新模型参数.
                 """
                 if not self.model_accepts_loss_kwargs and self.compute_loss_func is None:
+                    print("执行了 loss = loss / self.args.gradient_accumulation_steps")
                     loss = loss / self.args.gradient_accumulation_steps
 
                 # Turning off loss scaling w.r.t. gradient accumulation when DeepSpeed is enabled
@@ -1175,14 +1178,15 @@ class MAMLSeq2SeqTrainer(CustomSeq2SeqTrainer):
                 if self.accelerator.distributed_type == DistributedType.DEEPSPEED:
                     kwargs["scale_wrt_gas"] = False
 
-                self.accelerator.backward(loss, **kwargs)  # 反向传播
+                # self.optimizer.zero_grad()  # 清空梯度
+                # FIXME 可能问题出在 self.accelerator
+                with torch.autograd.set_detect_anomaly(True):
+                    self.accelerator.backward(loss, **kwargs)  # 反向传播
             ############ 这部分是借鉴的 training_step ##############
             self.optimizer.step()  # 更新 task-specific 模型参数
             # self.optimizer.zero_grad() # 清空梯度
 
             logger.info_rank0("完成了1个epoch内所有Task的训练")
-
-            # FIXME: AttributeError: 'float' object has no attribute 'backward'
 
         if args.past_index and hasattr(self, "_past"):
             # Clean the state at the end of training
@@ -1569,6 +1573,7 @@ class MAMLSeq2SeqTrainer(CustomSeq2SeqTrainer):
             # return (loss, None, None)
             loss, logits, labels = loss, None, None
 
+        # FIXME: 需要修复
         logits = nested_detach(logits)
         if len(logits) == 1:
             logits = logits[0]
@@ -1626,7 +1631,7 @@ class MAMLSeq2SeqTrainer(CustomSeq2SeqTrainer):
     ) -> torch.Tensor:
         """
         抄的 Trainer.training_step
-        对一批输入执行训练步骤。只有正向传播
+        对一批输入执行训练步骤。只有正向传播+反向传播
         Args:
             model (`nn.Module`):
                 The model to train.
@@ -1684,11 +1689,39 @@ class MAMLSeq2SeqTrainer(CustomSeq2SeqTrainer):
                 torch.cuda.empty_cache()
 
         torch.cuda.empty_cache()  # 释放内存
+        self.accelerator.free_memory()  # 释放显存
 
         # 多GPU训练
         if self.args.n_gpu > 1:
             loss = loss.mean()  # mean() to average on multi-gpu parallel training
 
+        # kwargs = {}
+
+        # # For LOMO optimizers you need to explicitly use the learnign rate
+        # if self.args.optim in [OptimizerNames.LOMO, OptimizerNames.ADALOMO]:
+        #     kwargs["learning_rate"] = self._get_learning_rate()
+
+        # # 多GPU训练
+        # if self.args.n_gpu > 1:
+        #     loss = loss.mean()  # mean() to average on multi-gpu parallel training
+
+        # if self.use_apex:
+        #     # 混合精度训练, 用 自动精度 包裹起来
+        #     with amp.scale_loss(loss, self.optimizer) as scaled_loss:
+        #         scaled_loss.backward()
+        # else:
+        #     # Finally we need to normalize the loss for reporting
+        #     if not self.model_accepts_loss_kwargs and self.compute_loss_func is None:
+        #         loss = loss / self.args.gradient_accumulation_steps
+
+        #     # Turning off loss scaling w.r.t. gradient accumulation when DeepSpeed is enabled
+        #     # https://github.com/huggingface/transformers/pull/35808
+        #     if self.accelerator.distributed_type == DistributedType.DEEPSPEED:
+        #         kwargs["scale_wrt_gas"] = False
+
+        #     self.accelerator.backward(loss, **kwargs)  # 反向传播
+
+        #     return loss.detach()
         return loss
 
 
