@@ -648,7 +648,7 @@ class MAMLSeq2SeqTrainer(CustomSeq2SeqTrainer):
                 if hasattr(epoch_dataloader, "set_epoch"):
                     epoch_dataloader.set_epoch(epoch)
 
-                # 内循环
+                #################### 当前task的支持集训练 内循环 START #############################
                 step = -1
                 update_step = -1
                 for i in range(self.maml_inner_epochs):
@@ -881,9 +881,9 @@ class MAMLSeq2SeqTrainer(CustomSeq2SeqTrainer):
                     torch.cuda.empty_cache()  # 释放显存
                     self.__get_gpu_memory(f"完成第 {epoch} 个Epoch的第 {maml_task} 个任务的support训练, 并释放显存")
 
-                ################# END 这里完成了当前task的训练 END ##########
+                #################### 当前task的支持集训练 内循环 END #############################
 
-                ######### 计算 Task-Specific Model 的 损失(带梯度) ##########
+                ###################### 计算 Task-Specific Model 的 查询集(query)损失(带梯度) START ####################
                 logger.info(f"\n***** Running Query *****")
                 query_loss_list = []
                 query_loss = torch.tensor(0.0).to(args.device)
@@ -959,7 +959,7 @@ class MAMLSeq2SeqTrainer(CustomSeq2SeqTrainer):
                             and self.accelerator.distributed_type != DistributedType.DEEPSPEED
                             else contextlib.nullcontext
                         )
-                        self.__get_gpu_memory(f"正在计算 query_loss_step")
+                        self.__get_gpu_memory(f"计算第 {step+1} query step 前")
                         with context():
                             """
                             training_step() 包含模型的正向传播 和 反向更新, 但没有更新参数
@@ -967,6 +967,7 @@ class MAMLSeq2SeqTrainer(CustomSeq2SeqTrainer):
                             """
                             # query_loss_step = self.training_step(model, inputs, num_items_in_batch)
                             query_loss_step = self.training_step_only_forward(model, inputs, num_items_in_batch)
+
                         # ################ Test 测试 ################
                         if False:
                             kwargs = {}
@@ -1020,12 +1021,7 @@ class MAMLSeq2SeqTrainer(CustomSeq2SeqTrainer):
                                     f"Calculated loss must be on the original device: {tr_loss.device} but device in use is {query_loss_step.device}"
                                 )
                             # FIXME: query_loss_step 占用显存过大.
-                            # print(f"query_loss_step 占用: {query_loss_step.element_size() * query_loss_step.nelement() / 1024} KB")
-                            # query_loss = query_loss + query_loss  # 这种方式占用显存不大
-                            # query_loss = query_loss + query_loss_step  # 这种方式占用显存太大
                             query_loss_list.append(query_loss_step)  # 这种方式占用显存太大
-                            # del query_loss_step  # 释放显存
-                        print(f"现在运行第 {step+1} query step")
                         model.zero_grad()  # 清空梯度
 
                         # PyTorch/XLA relies on the data loader to insert the mark_step for
@@ -1054,17 +1050,39 @@ class MAMLSeq2SeqTrainer(CustomSeq2SeqTrainer):
                     )
                     self.control.should_training_stop = True
 
-                logger.info_rank0(f"{'='*10}> 完成第 {epoch} 个Epoch的第 {maml_task} 个任务的support训练")
-
-                self.__get_gpu_memory(f"完成第 {epoch} 个Epoch的第 {maml_task} 个任务的support训练")
+                self.__get_gpu_memory(f"完成第 {epoch} 个Epoch的第 {maml_task} 个任务的query loss 计算")
 
                 self.accelerator.free_memory()  # 释放显存
                 torch.cuda.empty_cache()  # 释放显存
-                self.__get_gpu_memory(f"完成第 {epoch} 个Epoch的第 {maml_task} 个任务的support训练, 并释放显存")
+                self.__get_gpu_memory(f"完成第 {epoch} 个Epoch的第 {maml_task} 个任务的query loss 计算, 并释放显存")
+                ###################### 计算 Task-Specific Model 的 查询集(query)损失(带梯度) END ####################
 
                 query_loss = torch.stack(query_loss_list).mean()
-                # FIXME 这种方式也会导致爆显存，当task数量多了之后
-                task_losses.append(query_loss)  # 把当前task的loss保存下来
+                # 直接在这对 meta_accelerator 进行反向传播,累计梯度
+                query_loss = query_loss / self.maml_num_tasks  # 损失归一化
+
+                ###### kwargs START ########
+                kwargs = {}
+
+                # For LOMO optimizers you need to explicitly use the learnign rate
+                if self.args.optim in [OptimizerNames.LOMO, OptimizerNames.ADALOMO]:
+                    kwargs["learning_rate"] = self._get_learning_rate()
+
+                # Turning off loss scaling w.r.t. gradient accumulation when DeepSpeed is enabled
+                # https://github.com/huggingface/transformers/pull/35808
+                if self.accelerator.distributed_type == DistributedType.DEEPSPEED:
+                    kwargs["scale_wrt_gas"] = False
+
+                meta_accelerator.backward(query_loss, **kwargs)
+                del query_loss
+                del query_loss_list
+
+                self.accelerator.free_memory()  # 释放显存
+                torch.cuda.empty_cache()  # 释放显存
+                self.__get_gpu_memory(
+                    f"完成第 {epoch} 个Epoch的第 {maml_task} 个任务对 meta_accelerator 的梯度累加, 并释放显存"
+                )
+
                 ################### 下面部分被注释 ##########################
                 ##### 下面抄 support 部分的逻辑 #####
                 if False:
@@ -1144,45 +1162,6 @@ class MAMLSeq2SeqTrainer(CustomSeq2SeqTrainer):
             self.accelerator = meta_accelerator
             self.__get_gpu_memory(f"完成第 {epoch} 个Epoch内所有任务的训练时， 还原回Epoch开始时的Model和Optimizer")
 
-            ## 对 model 进行梯度更新
-            # 计算所有task的loss的平均值
-            assert len(task_losses) != 0, "task_losses的长度不能为0"
-            avg_loss = torch.stack(task_losses).mean()  # 将task_losses转换为张量,并计算平均值
-            loss = avg_loss
-
-            ############ 这部分是借鉴的 training_step ##############
-            kwargs = {}
-
-            # For LOMO optimizers you need to explicitly use the learnign rate
-            if self.args.optim in [OptimizerNames.LOMO, OptimizerNames.ADALOMO]:
-                kwargs["learning_rate"] = self._get_learning_rate()
-
-            if self.use_apex:
-                # 混合精度训练, 用 自动精度 包裹起来
-                with amp.scale_loss(loss, self.optimizer) as scaled_loss:
-                    scaled_loss.backward()
-            else:
-                """
-                Finally we need to normalize the loss for reporting
-                最后，我们需要将损失标准化以供报告.
-                gradient_accumulation_steps 用于控制在更新模型参数之前累积多少个小批量（mini-batch）的梯度。
-                当 GPU 内存不足以处理一个较大的批次时，可以通过将一个大批次拆分为多个小批次;
-                每个小批次计算梯度并累积起来，最后将累积的梯度用于更新模型参数.
-                """
-                if not self.model_accepts_loss_kwargs and self.compute_loss_func is None:
-                    print("执行了 loss = loss / self.args.gradient_accumulation_steps")
-                    loss = loss / self.args.gradient_accumulation_steps
-
-                # Turning off loss scaling w.r.t. gradient accumulation when DeepSpeed is enabled
-                # https://github.com/huggingface/transformers/pull/35808
-                if self.accelerator.distributed_type == DistributedType.DEEPSPEED:
-                    kwargs["scale_wrt_gas"] = False
-
-                # self.optimizer.zero_grad()  # 清空梯度
-                # FIXME 可能问题出在 self.accelerator
-                with torch.autograd.set_detect_anomaly(True):
-                    self.accelerator.backward(loss, **kwargs)  # 反向传播
-            ############ 这部分是借鉴的 training_step ##############
             self.optimizer.step()  # 更新 task-specific 模型参数
             # self.optimizer.zero_grad() # 清空梯度
 
@@ -1568,7 +1547,6 @@ class MAMLSeq2SeqTrainer(CustomSeq2SeqTrainer):
                 # TODO: this needs to be fixed and made cleaner later.
                 if self.args.past_index >= 0:
                     self._past = outputs[self.args.past_index - 1]
-
 
         logits = nested_detach(logits)
         if len(logits) == 1:
