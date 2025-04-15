@@ -917,6 +917,17 @@ class MAMLSeq2SeqTrainer(CustomSeq2SeqTrainer):
                 ):
                     self._load_rng_state(resume_from_checkpoint)
 
+                ###### 初始化用于accelerator.backward()的 kwargs  ########
+                kwargs = {}
+                # For LOMO optimizers you need to explicitly use the learnign rate
+                if self.args.optim in [OptimizerNames.LOMO, OptimizerNames.ADALOMO]:
+                    kwargs["learning_rate"] = self._get_learning_rate()
+                # Turning off loss scaling w.r.t. gradient accumulation when DeepSpeed is enabled
+                # https://github.com/huggingface/transformers/pull/35808
+                if self.accelerator.distributed_type == DistributedType.DEEPSPEED:
+                    kwargs["scale_wrt_gas"] = False
+                ###### 初始化用于accelerator.backward()的 kwargs  ########
+
                 rng_to_sync = False
                 steps_skipped = 0
                 if steps_trained_in_current_epoch > 0:
@@ -984,7 +995,14 @@ class MAMLSeq2SeqTrainer(CustomSeq2SeqTrainer):
                                     f"Calculated loss must be on the original device: {tr_loss.device} but device in use is {query_loss_step.device}"
                                 )
                             # FIXME: query_loss_step 占用显存过大.
-                            query_loss_list.append(query_loss_step)  # 这种方式占用显存太大
+                            # query_loss_list.append(query_loss_step)  # 这种方式占用显存太大
+
+                            # 直接在这对 meta_accelerator 进行反向传播,累计梯度
+                            query_loss = query_loss / (self.num_querys * self.maml_num_tasks)  # 损失归一化
+                            meta_accelerator.backward(query_loss, **kwargs)
+                            del query_loss
+                            self.accelerator.free_memory()  # 释放显存
+                            torch.cuda.empty_cache()  # 释放显存
                         model.zero_grad()  # 清空梯度
 
                         # PyTorch/XLA relies on the data loader to insert the mark_step for
@@ -1016,34 +1034,6 @@ class MAMLSeq2SeqTrainer(CustomSeq2SeqTrainer):
                 self.__get_gpu_memory(f"完成第 {epoch} 个Epoch的第 {maml_task} 个任务的query loss 计算")
 
                 ###################### 计算 Task-Specific Model 的 查询集(query)损失(带梯度) END ####################
-
-                query_loss = torch.stack(query_loss_list).mean()
-                # 直接在这对 meta_accelerator 进行反向传播,累计梯度
-                query_loss = query_loss / self.maml_num_tasks  # 损失归一化
-                del query_loss_list  # 释放显存
-
-                ###### kwargs START ########
-                kwargs = {}
-
-                # For LOMO optimizers you need to explicitly use the learnign rate
-                if self.args.optim in [OptimizerNames.LOMO, OptimizerNames.ADALOMO]:
-                    kwargs["learning_rate"] = self._get_learning_rate()
-
-                # Turning off loss scaling w.r.t. gradient accumulation when DeepSpeed is enabled
-                # https://github.com/huggingface/transformers/pull/35808
-                if self.accelerator.distributed_type == DistributedType.DEEPSPEED:
-                    kwargs["scale_wrt_gas"] = False
-
-                meta_accelerator.backward(query_loss, **kwargs)
-                del query_loss
-
-                self.accelerator.free_memory()  # 释放显存
-                torch.cuda.empty_cache()  # 释放显存
-                self.__get_gpu_memory(
-                    f"完成第 {epoch} 个Epoch的第 {maml_task} 个任务对 meta_accelerator 的梯度累加, 并释放显存"
-                )
-
-                ######### 计算 Task-Specific Model 的 损失(带梯度) ##########
 
                 self.control = self.callback_handler.on_epoch_end(args, self.state, self.control)
                 self._maybe_log_save_evaluate(tr_loss, grad_norm, model, trial, epoch, ignore_keys_for_eval, start_time)
@@ -1077,7 +1067,7 @@ class MAMLSeq2SeqTrainer(CustomSeq2SeqTrainer):
             self.__get_gpu_memory(f"完成第 {epoch} 个Epoch内所有任务的训练时， 还原回Epoch开始时的Model和Optimizer")
 
             self.optimizer.step()  # 更新 task-specific 模型参数
-            # self.optimizer.zero_grad() # 清空梯度
+            self.optimizer.zero_grad()  # 清空梯度
 
             logger.info_rank0("完成了1个epoch内所有Task的训练")
 
