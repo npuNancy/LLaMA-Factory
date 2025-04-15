@@ -176,8 +176,6 @@ def run_sft(
     """
 
     trainer = MAMLSeq2SeqTrainer(
-        num_shots=10,
-        num_querys=10,
         maml_training_dataset_list=maml_training_dataset_list,
         model=model,
         args=training_args,
