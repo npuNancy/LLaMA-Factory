@@ -380,6 +380,7 @@ class MAMLSeq2SeqTrainer(CustomSeq2SeqTrainer):
     def _inner_training_loop(
         self, batch_size=None, args=None, resume_from_checkpoint=None, trial=None, ignore_keys_for_eval=None
     ):
+        # TODO:1. 保存模型; 现有保存模型的逻辑是什么？我要的保存模型的逻辑: 每个Epoch保存一个模型
         self.accelerator.free_memory()  # 释放显存
         self.__get_gpu_memory("训练开始时")
         self._train_batch_size = batch_size
@@ -621,12 +622,22 @@ class MAMLSeq2SeqTrainer(CustomSeq2SeqTrainer):
 
             self.__get_gpu_memory(f"第 {epoch} 个Epoch, 释放显存后")
 
+            # # 从 self.maml_training_dataset_list 中 随机取出 self.maml_num_tasks 个任务
+            # self.maml_training_dataset_list_tmp = random.sample(self.maml_training_dataset_list, self.maml_num_tasks)
+
             # 从 self.maml_training_dataset_list 中 随机取出 self.maml_num_tasks 个任务
-            self.maml_training_dataset_list_tmp = random.sample(self.maml_training_dataset_list, self.maml_num_tasks)
+            self.maml_training_dataset_list_tmp_idx = random.sample(
+                range(len(self.maml_training_dataset_list)), self.maml_num_tasks
+            )
+            self.maml_training_dataset_list_tmp = [
+                self.maml_training_dataset_list[idx] for idx in self.maml_training_dataset_list_tmp_idx
+            ]
+
             # TODO: 每次这些数据集都会被加载到显存吗？会不会导致显存不足？
 
             for maml_task in range(self.maml_num_tasks):
-                logger.info_rank0(f"{'='*10}> 当前在第 {epoch} 个Epoch的第 {maml_task} 个任务.")
+                task_id = self.maml_training_dataset_list_tmp_idx[maml_task]
+                logger.info_rank0(f"{'='*10}> 当前在第 {epoch} 个Epoch的第 {maml_task} 个任务, {task_id=}.")
 
                 # --- 内循环：在支持集上做几步梯度更新 ---
                 # 克隆一份模型供内循环使用，防止直接改动 model 参数
@@ -715,7 +726,7 @@ class MAMLSeq2SeqTrainer(CustomSeq2SeqTrainer):
                         for i, inputs in enumerate(batch_samples):
                             step += 1
                             logger.info_rank0(
-                                f"{'='*10}> 当前在第 {epoch} 个Epoch的第 {maml_task} 个任务的第 {step} Step."
+                                f"{'='*10}> 当前在第 {epoch} 个Epoch的第 {maml_task} 个任务的第 {step+1} Step."
                             )
                             do_sync_step = (step + 1) % args.gradient_accumulation_steps == 0 or (
                                 step + 1
@@ -851,22 +862,37 @@ class MAMLSeq2SeqTrainer(CustomSeq2SeqTrainer):
                                 self.state.global_step += 1
                                 self.state.epoch = epoch + (step + 1 + steps_skipped) / steps_in_epoch
                                 self.control = self.callback_handler.on_step_end(args, self.state, self.control)
-                                self._maybe_log_save_evaluate(
-                                    tr_loss, grad_norm, model, trial, epoch, ignore_keys_for_eval, start_time
-                                )
+                                self.__maml_support_log(tr_loss, grad_norm, start_time, task_id)  # 记录训练日志
+                                # self._maybe_log_save_evaluate(tr_loss, grad_norm, model, trial, epoch, ignore_keys_for_eval, start_time)
                             else:
                                 self.control = self.callback_handler.on_substep_end(args, self.state, self.control)
 
                             # PyTorch/XLA relies on the data loader to insert the mark_step for
                             # each step. Since we are breaking the loop early, we need to manually
                             # insert the mark_step here.
+                            # PyTorch/XLA依赖于数据加载器为每个步骤插入mark_step。
+                            # 由于我们很早就打破了循环，我们需要在这里手动插入mark_step。
                             if self.control.should_epoch_stop or self.control.should_training_stop:
+                                logger.warning(
+                                    "在`if self.control.should_epoch_stop or self.control.should_training_stop:`处退出1"
+                                )
                                 if is_torch_xla_available():
                                     xm.mark_step()
                                 break
+                            self.__get_gpu_memory(
+                                f"完成第 {epoch} 个Epoch的第 {maml_task} 个任务的第 {step+1} Step. 释放显存[前]"
+                            )
+                            self.accelerator.free_memory()  # 释放显存
+                            torch.cuda.empty_cache()  # 释放显存
+                            self.__get_gpu_memory(
+                                f"完成第 {epoch} 个Epoch的第 {maml_task} 个任务的第 {step+1} Step. 释放显存[后]"
+                            )
                         # We also need to break out of the nested loop
                         # 我们也需要从嵌套循环中跳出
                         if self.control.should_epoch_stop or self.control.should_training_stop:
+                            logger.warning(
+                                "在`if self.control.should_epoch_stop or self.control.should_training_stop:`处退出2"
+                            )
                             if is_torch_xla_available():
                                 xm.mark_step()
                             break
@@ -882,11 +908,7 @@ class MAMLSeq2SeqTrainer(CustomSeq2SeqTrainer):
                         )
                         self.control.should_training_stop = True
 
-                    self.__get_gpu_memory(f"完成第 {epoch} 个Epoch的第 {maml_task} 个任务的support训练")
-
-                    self.accelerator.free_memory()  # 释放显存
-                    torch.cuda.empty_cache()  # 释放显存
-                    self.__get_gpu_memory(f"完成第 {epoch} 个Epoch的第 {maml_task} 个任务的support训练, 并释放显存")
+                self.__get_gpu_memory(f"完成第 {epoch} 个Epoch的第 {maml_task} 个任务的support训练")
 
                 #################### 当前task的支持集训练 内循环 END #############################
 
@@ -1000,8 +1022,7 @@ class MAMLSeq2SeqTrainer(CustomSeq2SeqTrainer):
                                 raise ValueError(
                                     f"Calculated loss must be on the original device: {tr_loss.device} but device in use is {query_loss_step.device}"
                                 )
-                            # FIXME: query_loss_step 占用显存过大.
-                            # query_loss_list.append(query_loss_step)  # 这种方式占用显存太大
+                            query_loss_list.append(query_loss_step.item())
 
                             # 直接在这对 meta_accelerator 进行反向传播,累计梯度
                             query_loss_step = query_loss_step / (self.num_querys * self.maml_num_tasks)  # 损失归一化
@@ -1011,16 +1032,23 @@ class MAMLSeq2SeqTrainer(CustomSeq2SeqTrainer):
                             torch.cuda.empty_cache()  # 释放显存
                         model.zero_grad()  # 清空梯度
 
+                        # FIXME: query 也要退出吗？
                         # PyTorch/XLA relies on the data loader to insert the mark_step for
                         # each step. Since we are breaking the loop early, we need to manually
                         # insert the mark_step here.
                         if self.control.should_epoch_stop or self.control.should_training_stop:
+                            logger.warning(
+                                "在`if self.control.should_epoch_stop or self.control.should_training_stop:`处退出3"
+                            )
                             if is_torch_xla_available():
                                 xm.mark_step()
                             break
                     # We also need to break out of the nested loop
                     # 我们也需要从嵌套循环中跳出
                     if self.control.should_epoch_stop or self.control.should_training_stop:
+                        logger.warning(
+                            "在`if self.control.should_epoch_stop or self.control.should_training_stop:`处退出4"
+                        )
                         if is_torch_xla_available():
                             xm.mark_step()
                         break
@@ -1037,12 +1065,13 @@ class MAMLSeq2SeqTrainer(CustomSeq2SeqTrainer):
                     )
                     self.control.should_training_stop = True
 
+                self.__maml_query_log(np.mean(query_loss_list), start_time, task_id)
                 self.__get_gpu_memory(f"完成第 {epoch} 个Epoch的第 {maml_task} 个任务的query loss 计算")
 
                 ###################### 计算 Task-Specific Model 的 查询集(query)损失(带梯度) END ####################
-
-                self.control = self.callback_handler.on_epoch_end(args, self.state, self.control)
-                self._maybe_log_save_evaluate(tr_loss, grad_norm, model, trial, epoch, ignore_keys_for_eval, start_time)
+                # TODO: 记录当前 Task-Specific Model 的 query loss
+                # self.control = self.callback_handler.on_epoch_end(args, self.state, self.control) # TODO: 还没到epoch end的时候
+                # self._maybe_log_save_evaluate(tr_loss, grad_norm, model, trial, epoch, ignore_keys_for_eval, start_time)
                 logger.info(f">>>>>>> 完成第 {epoch} 个Epoch的第 {maml_task} 个任务的query推理 <<<<<<<<<")
 
                 if DebugOption.TPU_METRICS_DEBUG in self.args.debug:
@@ -1059,6 +1088,7 @@ class MAMLSeq2SeqTrainer(CustomSeq2SeqTrainer):
                             "你启用了PyTorch/XLA调试指标，但你没有配置TPU。如果这是意外的，请检查你的训练配置。"
                         )
                 if self.control.should_training_stop:
+                    logger.warning(f"因为{self.control.should_training_stop=}, 所以退出当前Epoch, 进入下一个Epoch.")
                     break
             ################################
             # 完成了1个epoch内所有Task的训练 #
@@ -1077,12 +1107,15 @@ class MAMLSeq2SeqTrainer(CustomSeq2SeqTrainer):
 
             logger.info_rank0("完成了1个epoch内所有Task的训练")
 
+            # TODO: 需要确认 meta_accelerator.backward, self.optimizer.step() h后是否就是这个model
+            self.__save_meta_model(model, trial, epoch)
+
         if args.past_index and hasattr(self, "_past"):
             # Clean the state at the end of training
             delattr(self, "_past")
 
-        logger.info("\n\nTraining completed. Do not forget to share your model on huggingface.co/models =)\n\n")
-        logger.info("\n\n训练完成。不要忘记在huggingface.co/models上分享你的模型 =)\n\n")
+        logger.info("\n\nTraining completed. Do not forget to share your model on huggingface.co/models \n\n")
+        logger.info("\n\n训练完成。不要忘记在huggingface.co/models上分享你的模型 \n\n")
         if args.load_best_model_at_end and self.state.best_model_checkpoint is not None:
             # Wait for everyone to get here so we are sure the model has been saved by process 0.
             # 等待每个人到达这里，以确保进程0已经保存了模型。
@@ -1398,6 +1431,68 @@ class MAMLSeq2SeqTrainer(CustomSeq2SeqTrainer):
 
         # We use the same batch_size as for eval.
         return self.accelerator.prepare(DataLoader(test_dataset, **dataloader_params))
+
+    def __maml_support_log(self, tr_loss, grad_norm, start_time, task_id):
+        """
+        _maybe_log_save_evaluate 的 log 部分
+        """
+        if self.control.should_log and self.state.global_step > self._globalstep_last_logged:
+            if is_torch_xla_available():
+                xm.mark_step()
+
+            logs: Dict[str, float] = {}
+
+            # all_gather + mean() to get average loss over all processes
+            tr_loss_scalar = self._nested_gather(tr_loss).mean().item()
+
+            # reset tr_loss to zero
+            tr_loss -= tr_loss
+
+            logs["task_id"] = task_id
+            logs["loss"] = round(tr_loss_scalar / (self.state.global_step - self._globalstep_last_logged), 4)
+            if grad_norm is not None:
+                logs["grad_norm"] = grad_norm.detach().item() if isinstance(grad_norm, torch.Tensor) else grad_norm
+            logs["learning_rate"] = self._get_learning_rate()
+
+            self._total_loss_scalar += tr_loss_scalar
+            self._globalstep_last_logged = self.state.global_step
+            self.store_flos()
+
+            self.log(logs, start_time)
+
+    def __maml_query_log(self, query_loss: float, start_time, task_id):
+        """
+        _maybe_log_save_evaluate 的 log 部分
+        """
+        # if is_torch_xla_available():
+        #     xm.mark_step()
+
+        logs: Dict[str, float] = {}
+        logs["task_id"] = task_id
+        logs["query_loss"] = query_loss
+
+        self.log(logs, start_time)
+
+    def __save_meta_model(self, model, trial, epoch):
+        """
+        _maybe_log_save_evaluate 的 save 部分
+        """
+        logger.info(f"第 {epoch} 个Epoch的模型将保存到 checkpoint-{self.state.global_step}")
+        self._save_checkpoint(model, trial)
+        self.control = self.callback_handler.on_save(self.args, self.state, self.control)
+
+    @override
+    def _maybe_log_save_evaluate(self, tr_loss, grad_norm, model, trial, epoch, ignore_keys_for_eval, start_time):
+        """
+        只保留了evaluate部分
+        """
+        metrics = None
+        if self.control.should_evaluate:
+            metrics = self._evaluate(trial, ignore_keys_for_eval)
+            is_new_best_metric = self._determine_best_metric(metrics=metrics, trial=trial)
+
+            if self.args.save_strategy == SaveStrategy.BEST:
+                self.control.should_save = is_new_best_metric
 
     def training_step_only_forward(
         self, model: nn.Module, inputs: Dict[str, Union[torch.Tensor, Any]], num_items_in_batch=None
