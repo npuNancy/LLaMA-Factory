@@ -380,7 +380,6 @@ class MAMLSeq2SeqTrainer(CustomSeq2SeqTrainer):
     def _inner_training_loop(
         self, batch_size=None, args=None, resume_from_checkpoint=None, trial=None, ignore_keys_for_eval=None
     ):
-        # TODO:1. 保存模型; 现有保存模型的逻辑是什么？我要的保存模型的逻辑: 每个Epoch保存一个模型
         self.accelerator.free_memory()  # 释放显存
         self.__get_gpu_memory("训练开始时")
         self._train_batch_size = batch_size
@@ -1032,26 +1031,26 @@ class MAMLSeq2SeqTrainer(CustomSeq2SeqTrainer):
                             torch.cuda.empty_cache()  # 释放显存
                         model.zero_grad()  # 清空梯度
 
-                        # FIXME: query 也要退出吗？
-                        # PyTorch/XLA relies on the data loader to insert the mark_step for
-                        # each step. Since we are breaking the loop early, we need to manually
-                        # insert the mark_step here.
-                        if self.control.should_epoch_stop or self.control.should_training_stop:
-                            logger.warning(
-                                "在`if self.control.should_epoch_stop or self.control.should_training_stop:`处退出3"
-                            )
-                            if is_torch_xla_available():
-                                xm.mark_step()
-                            break
-                    # We also need to break out of the nested loop
-                    # 我们也需要从嵌套循环中跳出
-                    if self.control.should_epoch_stop or self.control.should_training_stop:
-                        logger.warning(
-                            "在`if self.control.should_epoch_stop or self.control.should_training_stop:`处退出4"
-                        )
-                        if is_torch_xla_available():
-                            xm.mark_step()
-                        break
+                        ## FIXME: query 也要退出吗？
+                        ## PyTorch/XLA relies on the data loader to insert the mark_step for
+                        ## each step. Since we are breaking the loop early, we need to manually
+                        ## insert the mark_step here.
+                        # if self.control.should_epoch_stop or self.control.should_training_stop:
+                        #     logger.warning(
+                        #         "在`if self.control.should_epoch_stop or self.control.should_training_stop:`处退出3"
+                        #     )
+                        #     if is_torch_xla_available():
+                        #         xm.mark_step()
+                        #     break
+                    ## We also need to break out of the nested loop
+                    ## 我们也需要从嵌套循环中跳出
+                    # if self.control.should_epoch_stop or self.control.should_training_stop:
+                    #     logger.warning(
+                    #         "在`if self.control.should_epoch_stop or self.control.should_training_stop:`处退出4"
+                    #     )
+                    #     if is_torch_xla_available():
+                    #         xm.mark_step()
+                    #     break
                 if step < 0:
                     logger.warning(
                         "======= query ==========="
@@ -1106,7 +1105,7 @@ class MAMLSeq2SeqTrainer(CustomSeq2SeqTrainer):
             self.optimizer.zero_grad()  # 清空梯度
 
             logger.info_rank0("完成了1个epoch内所有Task的训练")
-
+            self.control = self.callback_handler.on_epoch_end(args, self.state, self.control)
             # TODO: 需要确认 meta_accelerator.backward, self.optimizer.step() h后是否就是这个model
             self.__save_meta_model(model, trial, epoch)
 
