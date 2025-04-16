@@ -338,10 +338,11 @@ class MAMLSeq2SeqTrainer(CustomSeq2SeqTrainer):
 
     def __init__(
         self,
-        num_shots: int,
-        num_querys: int,
         maml_training_dataset_list: List[Union[Dataset, IterableDataset, "datasets.Dataset"]],
-        maml_inner_epochs: int = 1,
+        num_shots: int = 10,
+        num_querys: int = 10,
+        maml_inner_epochs: int = 2,
+        maml_num_tasks_MAX: int = 10,
         *args,
         **kwargs,
     ):
@@ -349,6 +350,7 @@ class MAMLSeq2SeqTrainer(CustomSeq2SeqTrainer):
         Args:
             num_shots: k-shots
             num_querys: q-querys
+            maml_inner_epochs: 支持集更新轮数
             maml_training_dataset_list: List[Union[Dataset, IterableDataset, "datasets.Dataset"]]
         """
         super().__init__(*args, **kwargs)
@@ -356,9 +358,11 @@ class MAMLSeq2SeqTrainer(CustomSeq2SeqTrainer):
         self.num_shots = num_shots  # k-shots
         self.num_querys = num_querys  # q-querys
         self.maml_training_dataset_list = maml_training_dataset_list
-        self.maml_num_tasks = len(maml_training_dataset_list)  # MAML 训练任务的数量
 
-        # 这个无法使用
+        # MAML 训练任务的数量, 最多 10 个
+        self.maml_num_tasks_MAX = maml_num_tasks_MAX
+        self.maml_num_tasks = min(self.maml_num_tasks_MAX, len(self.maml_training_dataset_list))
+
         self.maml_inner_epochs = maml_inner_epochs  # MAML 每个任务的训练轮次
 
     def __get_gpu_memory(self, text: str = None):
@@ -617,6 +621,10 @@ class MAMLSeq2SeqTrainer(CustomSeq2SeqTrainer):
 
             self.__get_gpu_memory(f"第 {epoch} 个Epoch, 释放显存后")
 
+            # 从 self.maml_training_dataset_list 中 随机取出 self.maml_num_tasks 个任务
+            self.maml_training_dataset_list_tmp = random.sample(self.maml_training_dataset_list, self.maml_num_tasks)
+            # TODO: 每次这些数据集都会被加载到显存吗？会不会导致显存不足？
+
             for maml_task in range(self.maml_num_tasks):
                 logger.info_rank0(f"{'='*10}> 当前在第 {epoch} 个Epoch的第 {maml_task} 个任务.")
 
@@ -638,7 +646,7 @@ class MAMLSeq2SeqTrainer(CustomSeq2SeqTrainer):
 
                 ## 数据加载器
                 self.support_dataset, self.query_dataset = self.process_MAML_dataset(
-                    self.maml_training_dataset_list[maml_task]
+                    self.maml_training_dataset_list_tmp[maml_task]
                 )
                 self.train_dataset = self.support_dataset  # 第maml_task个任务的 支持集
                 train_dataloader = self.get_train_dataloader()  # 这个函数会读取 self.train_dataset
