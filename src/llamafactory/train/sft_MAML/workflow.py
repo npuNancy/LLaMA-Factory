@@ -119,7 +119,11 @@ def run_sft(
     }
 
     # 加载模型
+    # 这里会根据 finetuning_args.finetuning_type 来加载 lora full freeze
     model = load_model(tokenizer, model_args, finetuning_args, training_args.do_train)
+    print("\n####################")
+    model.print_trainable_parameters()
+    print("####################\n")
 
     # 如果模型是量化模型且不进行训练，则进行hack操作，使模型兼容预测
     if getattr(model, "is_quantized", False) and not training_args.do_train:
