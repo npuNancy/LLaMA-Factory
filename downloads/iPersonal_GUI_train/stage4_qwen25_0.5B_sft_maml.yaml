@@ -31,16 +31,16 @@ new_special_tokens: "<Role>,</Role>,<Task>,</Task>,<Format>,</Format>,<Rules>,</
 dataset: 
   - iPersonal_GUI_stage4_user_1_train
   - iPersonal_GUI_stage4_user_2_train
-  - iPersonal_GUI_stage4_user_4_train
-  - iPersonal_GUI_stage4_user_6_train
-  - iPersonal_GUI_stage4_user_7_train
-  - iPersonal_GUI_stage4_user_8_train
-  - iPersonal_GUI_stage4_user_9_train
-  - iPersonal_GUI_stage4_user_11_train
-  - iPersonal_GUI_stage4_user_13_train
-  - iPersonal_GUI_stage4_user_14_train
-  - iPersonal_GUI_stage4_user_15_train
-  - iPersonal_GUI_stage4_user_16_train
+  # - iPersonal_GUI_stage4_user_4_train
+  # - iPersonal_GUI_stage4_user_6_train
+  # - iPersonal_GUI_stage4_user_7_train
+  # - iPersonal_GUI_stage4_user_8_train
+  # - iPersonal_GUI_stage4_user_9_train
+  # - iPersonal_GUI_stage4_user_11_train
+  # - iPersonal_GUI_stage4_user_13_train
+  # - iPersonal_GUI_stage4_user_14_train
+  # - iPersonal_GUI_stage4_user_15_train
+  # - iPersonal_GUI_stage4_user_16_train
   # - iPersonal_GUI_stage4_user_17_train
   # - iPersonal_GUI_stage4_user_20_train
   # - iPersonal_GUI_stage4_user_21_train
@@ -92,9 +92,9 @@ preprocessing_num_workers: 16 # 预处理时使用的进程数量。
 
 ### output
 # TODO: 开始训练前修改 output_dir
-output_dir: saves/qwen25_0.5B_stage4/lora/test_0415
+output_dir: saves/stage4/qwen25_0.5B/lora/test_0415
 logging_steps: 10
-save_steps: 1000
+save_steps: 10
 plot_loss: true
 overwrite_output_dir: true
 
