@@ -1271,6 +1271,7 @@ class MAMLSeq2SeqTrainer(CustomSeq2SeqTrainer):
             self.store_flos()
 
             self.log(logs, start_time)
+            print(f"__maml_support_log, {logs=}")
 
     def __maml_query_log(self, query_loss: float, start_time, task_id):
         """
@@ -1284,6 +1285,7 @@ class MAMLSeq2SeqTrainer(CustomSeq2SeqTrainer):
         logs["query_loss"] = query_loss
 
         self.log(logs, start_time)
+        print(f"__maml_query_log, {logs=}")
 
     def __save_meta_model(self, model, trial, epoch):
         """
